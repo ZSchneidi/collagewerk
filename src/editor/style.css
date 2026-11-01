@@ -247,11 +247,28 @@ input[type='range']:hover::-webkit-slider-thumb, input[type='range']:active::-we
   grid-area: stage; position: relative; overflow: clip;
   background: radial-gradient(var(--stage-dot) 1px, transparent 1px) 0 0 / 22px 22px, var(--stage);
 }
-#sheet-area { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 92px 300px 150px 28px; }
-#sheet-wrap { position: relative; box-shadow: var(--shadow-paper); border-radius: 2px; }
-#sheet { display: block; touch-action: none; border-radius: 2px; }
-#sheet-label { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
-#overlay { position: absolute; inset: 0; pointer-events: none; }
+#sheet-area { position: absolute; inset: 0; padding: 92px 300px 150px 28px; overflow: clip; }
+#track { position: absolute; left: 0; top: 0; display: flex; align-items: flex-start; transition: transform 250ms var(--ease); will-change: transform; }
+#track.no-anim { transition: none; }
+.page-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 10px; opacity: .78; transition: opacity var(--dur) var(--ease); }
+.page-wrap.active { opacity: 1; }
+.page-wrap .sheet-wrap { position: relative; box-shadow: var(--shadow-paper); border-radius: 2px; }
+.page-wrap .sheet { display: block; touch-action: none; border-radius: 2px; }
+.page-wrap .overlay { position: absolute; inset: 0; pointer-events: none; }
+.page-label { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.page-wrap.active .page-label { color: var(--text); font-weight: 600; }
+#ghost-page { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--line-strong); border-radius: 8px; background: color-mix(in srgb, var(--panel) 40%, transparent); color: var(--muted); cursor: pointer; font: inherit; font-size: 15px; }
+#ghost-page .ico { width: 34px; height: 34px; }
+#ghost-page:hover, #ghost-page.drop-target { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.nav-btn { position: absolute; top: 50%; z-index: 3; width: 44px; height: 44px; margin-top: -40px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); box-shadow: var(--shadow); color: var(--text); cursor: pointer; }
+.nav-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.nav-btn:disabled { opacity: .35; }
+#nav-prev { left: 14px; }
+#nav-next { right: 14px; }
+#new-card { border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px 18px; width: min(640px, 92vw); background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+#new-card::backdrop { background: rgba(10, 10, 20, .45); backdrop-filter: blur(2px); }
+#new-card h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: 18px; }
+#new-card h2 .ico { color: var(--accent); }
 .slot-ui { position: absolute; border-radius: 2px; transition: box-shadow var(--dur) var(--ease); }
 .slot-ui.selected { box-shadow: 0 0 0 3px var(--accent), 0 0 0 7px color-mix(in srgb, var(--accent) 22%, transparent); z-index: 2; }
 .slot-ui.drop-target { box-shadow: 0 0 0 3px var(--accent), 0 0 24px 4px color-mix(in srgb, var(--accent) 45%, transparent); z-index: 3; }
@@ -387,7 +404,7 @@ fieldset.plain:disabled { opacity: .45; }
 .pc-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 
 /* toast */
-#toasts { position: fixed; left: calc(50% + 148px); bottom: 150px; transform: translateX(-50%); z-index: 30; pointer-events: none; }
+#toasts { position: fixed; left: 61%; top: 10px; transform: translateX(-50%); z-index: 30; pointer-events: none; }
 #toast {
   display: flex; align-items: center; gap: 10px; max-width: 70vw;
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--bad);

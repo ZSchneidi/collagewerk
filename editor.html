@@ -15,6 +15,7 @@
         <button id="redo" class="icon-btn" type="button" data-icon="Redo2" data-tip="Wiederholen (Strg+Y)" aria-label="Wiederholen"></button>
       </div>
       <div class="group">
+        <button id="new-collage" class="btn ghost" type="button" data-icon="FilePlus" data-tip="Neue Collage beginnen">Neu</button>
         <button id="open-file" class="btn ghost" type="button" data-icon="FolderOpen" data-tip="Gespeicherte Collage öffnen">Öffnen</button>
         <button id="save-file" class="btn ghost" type="button" data-icon="Save" data-tip="Collage als Datei speichern">Speichern</button>
       </div>
@@ -149,12 +150,12 @@
       </nav>
 
       <div id="sheet-area">
-        <div id="sheet-wrap">
-          <canvas id="sheet"></canvas>
-          <div id="overlay"></div>
+        <div id="track" class="no-anim">
+          <button id="ghost-page" type="button" title="Seite anhängen – Fotos hierher ziehen oder klicken"><span data-icon="Plus"></span><b>Seite</b></button>
         </div>
-        <div id="sheet-label"></div>
       </div>
+      <button id="nav-prev" class="nav-btn" type="button" data-icon="ChevronLeft" aria-label="Vorige Seite" data-tip="Vorige Seite (Bild ↑)"></button>
+      <button id="nav-next" class="nav-btn" type="button" data-icon="ChevronRight" aria-label="Nächste Seite" data-tip="Nächste Seite (Bild ↓)"></button>
 
       <div id="welcome" hidden>
         <div class="welcome-icon" data-icon="Images"></div>
@@ -196,6 +197,15 @@
       </footer>
     </main>
   </div>
+  <dialog id="new-card" aria-labelledby="nc-title">
+    <h2 id="nc-title"><span data-icon="FilePlus"></span>Neue Collage beginnen?</h2>
+    <p>Alle Fotos, Seiten und die Ablage werden entfernt. Mit Strg+Z lässt sich das rückgängig machen, solange dieser Tab offen bleibt.</p>
+    <div class="pc-actions">
+      <button id="nc-cancel" class="btn ghost" type="button">Abbrechen</button>
+      <button id="nc-reset" class="btn" type="button" data-icon="RotateCcw" data-tip="Auch Bogen, Layout und Stil auf Standard zurücksetzen">Alles zurücksetzen</button>
+      <button id="nc-keep" class="btn primary" type="button" data-icon="Check" data-tip="Bogen, Layout und Stil bleiben">Einstellungen behalten</button>
+    </div>
+  </dialog>
   <dialog id="print-card" aria-labelledby="pc-title">
     <h2 id="pc-title"><span data-icon="Printer"></span>Vor dem Drucken</h2>
     <p>Bitte im Druckdialog einstellen (<span id="pc-pages"></span>):</p>

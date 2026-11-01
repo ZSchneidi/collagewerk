@@ -1,13 +1,13 @@
 import {
   Archive, ChevronDown, CircleAlert, CircleCheck, Crop, FileImage, FlipHorizontal2, FolderOpen, ImageDown, ImagePlus, Images, Info,
   LayoutGrid, Moon, MousePointerClick, Move, Plus, Printer, RectangleHorizontal, RectangleVertical, Redo2, RotateCcw, RotateCw, Ruler, Save,
-  Scan, Sun, TriangleAlert, Undo2, X, ZoomIn, FileDown, Sparkles, Shuffle, ChevronLeft, ChevronRight, Trash2, createElement, type IconNode,
+  Scan, Sun, TriangleAlert, Undo2, X, ZoomIn, FileDown, Sparkles, Shuffle, ChevronLeft, ChevronRight, Trash2, FilePlus, Check, createElement, type IconNode,
 } from 'lucide';
 
 const ICONS: Record<string, IconNode> = {
   Archive, ChevronDown, CircleAlert, CircleCheck, Crop, FileImage, FlipHorizontal2, FolderOpen, ImageDown, ImagePlus, Images, Info,
   LayoutGrid, Moon, MousePointerClick, Move, Plus, Printer, RectangleHorizontal, RectangleVertical, Redo2, RotateCcw, RotateCw, Ruler, Save,
-  Scan, Sun, TriangleAlert, Undo2, X, ZoomIn, FileDown, Sparkles, Shuffle, ChevronLeft, ChevronRight, Trash2,
+  Scan, Sun, TriangleAlert, Undo2, X, ZoomIn, FileDown, Sparkles, Shuffle, ChevronLeft, ChevronRight, Trash2, FilePlus, Check,
 };
 
 export type IconName = keyof typeof ICONS;

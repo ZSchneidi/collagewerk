@@ -1,5 +1,5 @@
 import './style.css';
-import { addPage, addPhotos, addPhotosToPage, capacity, createCollage, deletePage, fitSheet, isSame, maxSlots, moveSlot, moveToPage, normalize, photoCount, prunePhotos, referencedPhotoIds, setCrop, setLastPageCount, setLayoutMode, setPhotoSize, setSamePhoto, setSlotCount, setTilt, slotToTray, trayToPage, trayToSlot, withDefaults } from '../model/collage';
+import { addPage, addPhotos, addPhotosToPage, moveAcross, newCollage, capacity, createCollage, deletePage, fitSheet, isSame, maxSlots, moveSlot, moveToPage, normalize, photoCount, prunePhotos, referencedPhotoIds, setCrop, setLastPageCount, setLayoutMode, setPhotoSize, setSamePhoto, setSlotCount, setTilt, slotToTray, trayToPage, trayToSlot, withDefaults } from '../model/collage';
 import { clampCrop, defaultCrop, dpiLevel, effectiveDpi, mirror, pan, rotate, zoomAt } from '../model/crop';
 import { parseFile, toFile } from '../model/fileformat';
 import { History } from '../model/history';
@@ -35,7 +35,10 @@ const curSlots = () => state.pages[page]?.slots ?? [];
 const history = new History<Collage>();
 let coalesceKey: string | null = null;
 const photos = new PhotoStore();
-photos.onLoaded = () => requestRender();
+photos.onLoaded = () => {
+  photosVersion++;
+  requestRender();
+};
 
 /** Apply a change. Records undo history unless the same `key` is still coalescing (slider drags, gestures). */
 function commit(next: Collage, key: string | null = null) {
@@ -111,41 +114,127 @@ async function addFiles(files: File[], target?: number, toPage?: number) {
   if (state.pages.length > before) toast(`${state.pages.length - before} neue Seite${state.pages.length - before > 1 ? 'n' : ''} angelegt`, 'info');
 }
 
-// ---------- geometry ----------
-const canvas = $<HTMLCanvasElement>('sheet');
-const ctx = canvas.getContext('2d')!;
-const overlay = $('overlay');
+// ---------- geometry: Page carousel (carousel rules 1–4) ----------
 const stage = $('stage');
-let view = { scale: 1 }; // css px per mm
-
 const sheetArea = $('sheet-area');
+const track = $('track');
+let view = { scale: 1 }; // css px per mm, same for every Page
+const PAGE_GAP = 48;
+const LABEL_H = 30;
+
+interface PageEls {
+  wrap: HTMLElement;
+  sheetWrap: HTMLElement;
+  canvas: HTMLCanvasElement;
+  overlay: HTMLElement;
+  label: HTMLElement;
+  num: HTMLElement;
+  sheetLabel: HTMLElement;
+  /** what is currently drawn, to skip redundant redraws */
+  drawn: string;
+}
+let pageEls: PageEls[] = [];
+
+function buildPageEls() {
+  const n = state.pages.length;
+  while (pageEls.length > n) pageEls.pop()!.wrap.remove();
+  while (pageEls.length < n) {
+    const wrap = document.createElement('div');
+    wrap.className = 'page-wrap';
+    const sheetWrap = document.createElement('div');
+    sheetWrap.className = 'sheet-wrap';
+    const canvas = document.createElement('canvas');
+    canvas.className = 'sheet';
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    sheetWrap.append(canvas, overlay);
+    const label = document.createElement('div');
+    label.className = 'page-label';
+    const num = document.createElement('span');
+    const sheetLabel = document.createElement('span');
+    label.append(num, ' · ', sheetLabel);
+    wrap.append(sheetWrap, label);
+    track.insertBefore(wrap, $('ghost-page'));
+    pageEls.push({ wrap, sheetWrap, canvas, overlay, label, num, sheetLabel, drawn: '' });
+  }
+  pageEls.forEach((e, i) => {
+    e.wrap.dataset.pw = String(i);
+    const active = i === page;
+    e.wrap.classList.toggle('active', active);
+    // the Active Page carries the historic ids (tests, styles)
+    e.canvas.id = active ? 'sheet' : '';
+    e.overlay.id = active ? 'overlay' : '';
+    e.sheetWrap.id = active ? 'sheet-wrap' : '';
+    e.sheetLabel.id = active ? 'sheet-label' : '';
+  });
+}
+const cv = () => pageEls[page]?.canvas ?? ($('sheet') as HTMLCanvasElement);
+
 function fit() {
   const { w, h } = sheetSize(state.sheet);
   const cs = getComputedStyle(sheetArea);
-  const sw = sheetArea.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  const sh = sheetArea.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 30; // label
+  const padL = parseFloat(cs.paddingLeft);
+  const padT = parseFloat(cs.paddingTop);
+  const sw = sheetArea.clientWidth - padL - parseFloat(cs.paddingRight);
+  const sh = sheetArea.clientHeight - padT - parseFloat(cs.paddingBottom) - LABEL_H;
   view.scale = Math.max(0.5, Math.min(sw / w, sh / h));
-  const dpr = window.devicePixelRatio || 1;
-  canvas.style.width = `${w * view.scale}px`;
-  canvas.style.height = `${h * view.scale}px`;
-  canvas.width = Math.round(w * view.scale * dpr);
-  canvas.height = Math.round(h * view.scale * dpr);
+  const pw = w * view.scale;
+  const ph = h * view.scale;
+  for (const e of pageEls) {
+    e.canvas.style.width = `${pw}px`;
+    e.canvas.style.height = `${ph}px`;
+  }
+  const ghost = $('ghost-page');
+  ghost.style.width = `${pw}px`;
+  ghost.style.height = `${ph}px`;
+  ghost.hidden = isSame(state) || state.slotCount === 0;
+  track.style.gap = `${PAGE_GAP}px`;
+  track.style.top = `${padT + Math.max(0, (sh - ph) / 2)}px`;
+  trackX = padL + sw / 2 - (page * (pw + PAGE_GAP) + pw / 2);
 }
 
-function slotsMm(): Slot[] {
-  return collageSlots(state, page);
+/** Slide the track so the Active Page is centred (carousel rule 3). */
+let trackX = 0;
+let slidePending = false;
+function placeTrack(animate: boolean) {
+  track.classList.toggle('no-anim', !animate);
+  track.style.transform = `translateX(${trackX}px)`;
 }
-/** Slot rect in css px relative to the canvas. */
+
+function slotsMm(p = page): Slot[] {
+  return collageSlots(state, p);
+}
+/** Slot rect in css px relative to its canvas. */
 const toPx = (r: Rect): Rect => ({ x: r.x * view.scale, y: r.y * view.scale, w: r.w * view.scale, h: r.h * view.scale });
 
-function slotAt(clientX: number, clientY: number): number | null {
-  const b = canvas.getBoundingClientRect();
+/** Page whose Sheet is under a client point. */
+function pageAt(clientX: number, clientY: number): number | null {
+  for (let p = 0; p < pageEls.length; p++) {
+    const b = pageEls[p].canvas.getBoundingClientRect();
+    if (clientX >= b.left && clientX <= b.right && clientY >= b.top && clientY <= b.bottom) return p;
+  }
+  return null;
+}
+/** Slot under a client point on Page p. */
+function slotOn(p: number, clientX: number, clientY: number): number | null {
+  const el = pageEls[p]?.canvas;
+  if (!el) return null;
+  const b = el.getBoundingClientRect();
   const x = (clientX - b.left) / view.scale;
   const y = (clientY - b.top) / view.scale;
-  const slots = slotsMm();
+  const slots = slotsMm(p);
+  const ps = state.pages[p]?.slots ?? [];
   // topmost first: later Slots are drawn on top
-  for (let i = slots.length - 1; i >= 0; i--) if (hitsSlot(slots[i], tiltOf(state, page, i, curSlots()[i]), x, y)) return i;
+  for (let i = slots.length - 1; i >= 0; i--) if (hitsSlot(slots[i], tiltOf(state, p, i, ps[i]), x, y)) return i;
   return null;
+}
+function slotAt(clientX: number, clientY: number): number | null {
+  return slotOn(page, clientX, clientY);
+}
+/** Page + Slot under a point on any Page. */
+function hitAt(clientX: number, clientY: number): { p: number; i: number | null } | null {
+  const p = pageAt(clientX, clientY);
+  return p === null ? null : { p, i: slotOn(p, clientX, clientY) };
 }
 
 // ---------- Slot animation (rule 17) ----------
@@ -202,19 +291,41 @@ function renderNow() {
   if (raf) cancelAnimationFrame(raf);
   render();
 }
+let photosVersion = 0;
+/** Pages within this distance of the Active Page are drawn at full resolution (carousel open risk). */
+const NEAR = 2;
 function render() {
   raf = 0;
+  buildPageEls();
   fit();
+  if (frozenX !== null) placeTrackFrozen();
+  else placeTrack(!slideNow.instant);
+  slideNow.instant = false;
   const dpr = window.devicePixelRatio || 1;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
   startAnimationIfNeeded();
   const rects = displayRects();
   lastRects = rects;
-  drawPage(ctx, state, page, (id) => photos.bitmap(id), { scale: view.scale * dpr, placeholders: true, rects });
-  renderOverlay(rects);
+  const base = JSON.stringify([state.sheet, state.mode, state.photoSize, state.templateId, state.slant, state.gap, state.margin, state.background, state.style, state.cutMarks, view.scale, dpr, photosVersion, state.photos]);
+  pageEls.forEach((e, p) => {
+    const near = Math.abs(p - page) <= NEAR;
+    const k = near ? view.scale * dpr : view.scale * Math.min(dpr, 1) * 0.35;
+    const key = JSON.stringify([base, state.pages[p], near]);
+    if (p === page && anim) e.drawn = '';
+    if (e.drawn !== key) {
+      const { w, h } = sheetSize(state.sheet);
+      e.canvas.width = Math.round(w * k);
+      e.canvas.height = Math.round(h * k);
+      const ctx = e.canvas.getContext('2d')!;
+      drawPage(ctx, state, p, (id) => photos.bitmap(id), { scale: k, placeholders: true, rects: p === page ? rects : undefined });
+      e.drawn = p === page && anim ? '' : key;
+    }
+    if (near) renderOverlay(p, p === page ? rects : slotsMm(p));
+    else e.overlay.replaceChildren();
+  });
   renderChrome();
   if (anim) requestRender();
 }
+const slideNow = { instant: true };
 
 /** Sheet label, Welcome card, tray badge (rules 7, 13, 21). */
 function renderChrome() {
@@ -227,7 +338,13 @@ function renderChrome() {
     const ps = PHOTO_SIZES.find((p) => p.id === state.photoSize.preset);
     label += ` · ${state.slotCount} × ${ps ? ps.label : 'Eigene Größe'} ${fmt(d.w)} × ${fmt(d.h)} mm`;
   }
-  $('sheet-label').textContent = label;
+  pageEls.forEach((e, i) => {
+    e.sheetLabel.textContent = label;
+    e.num.textContent = `Seite ${i + 1} / ${pageEls.length}`;
+  });
+  ($('nav-prev') as HTMLButtonElement).disabled = page <= 0;
+  ($('nav-next') as HTMLButtonElement).disabled = page >= state.pages.length - 1;
+  $('nav-prev').hidden = $('nav-next').hidden = state.pages.length < 2;
   const empty = photoCount(state) === 0 && state.tray.length === 0;
   $('welcome').hidden = !empty;
   const badge = $('tray-count');
@@ -235,9 +352,13 @@ function renderChrome() {
   badge.classList.toggle('has', state.tray.length > 0);
 }
 
-let dropTarget: number | null = null;
-let hovered: number | null = null;
-function renderOverlay(slots: Slot[] = displayRects()) {
+type At = { p: number; i: number };
+let dropTarget: At | null = null;
+let hovered: At | null = null;
+const isAt = (a: At | null, p: number, i: number) => !!a && a.p === p && a.i === i;
+function renderOverlay(pg: number, slots: Slot[]) {
+  const overlay = pageEls[pg].overlay;
+  const ps = state.pages[pg]?.slots ?? [];
   // reuse elements so hover toolbars and badges are not torn down while the pointer is on them
   while (overlay.children.length > slots.length) overlay.lastElementChild!.remove();
   slots.forEach((r, i) => {
@@ -249,9 +370,9 @@ function renderOverlay(slots: Slot[] = displayRects()) {
       el.dataset.slot = String(i);
       overlay.appendChild(el);
     }
-    const it = curSlots()[i];
+    const it = ps[i];
     // follow the visible shape: Tilt as a CSS transform, polygons as an SVG outline (pages rule 24)
-    const tilt = tiltOf(state, page, i, it);
+    const tilt = tiltOf(state, pg, i, it);
     const f = tiltFit(p.w, p.h, tilt);
     Object.assign(el.style, {
       left: `${p.x}px`,
@@ -272,8 +393,8 @@ function renderOverlay(slots: Slot[] = displayRects()) {
       outline.setAttribute('viewBox', `0 0 ${p.w} ${p.h}`);
       outline.firstElementChild!.setAttribute('points', r.poly.map((q) => `${q.x * view.scale - p.x},${q.y * view.scale - p.y}`).join(' '));
     } else outline?.remove();
-    el.classList.toggle('selected', i === selected);
-    el.classList.toggle('drop-target', i === dropTarget);
+    el.classList.toggle('selected', pg === page && i === selected);
+    el.classList.toggle('drop-target', isAt(dropTarget, pg, i));
     const meta = it && state.photos[it.photoId];
     el.classList.toggle('occupied', !!(it && meta));
 
@@ -301,14 +422,14 @@ function renderOverlay(slots: Slot[] = displayRects()) {
       }
     }
 
-    const wantGuide = i === selected && !!(it && meta) && isPassbildPortrait() && guideOn;
+    const wantGuide = pg === page && i === selected && !!(it && meta) && isPassbildPortrait() && guideOn;
     const guide = el.querySelector(':scope > .bio-guide');
     if (wantGuide && !guide) el.appendChild(bioGuide());
     if (!wantGuide && guide) guide.remove();
 
-    const wantTools = !!(it && meta) && i === hovered && !gesture && !wantGuide && p.w >= 120 && p.h >= 60;
+    const wantTools = !!(it && meta) && isAt(hovered, pg, i) && !gesture && !wantGuide && p.w >= 120 && p.h >= 60;
     const tools = el.querySelector(':scope > .slot-tools');
-    if (wantTools && !tools) el.appendChild(slotTools(i));
+    if (wantTools && !tools) el.appendChild(slotTools(pg, i));
     if (!wantTools && tools) tools.remove();
   });
 }
@@ -343,7 +464,7 @@ function bioGuide() {
 }
 
 /** Slot toolbar (rule 15). */
-function slotTools(i: number) {
+function slotTools(pg: number, i: number) {
   const bar = document.createElement('div');
   bar.className = 'slot-tools';
   const add = (name: string, tip: string, fn: () => void) => {
@@ -355,6 +476,7 @@ function slotTools(i: number) {
     b.addEventListener('pointerdown', (e) => e.stopPropagation());
     b.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (pg !== page) activatePage(pg);
       if (selected !== i) select(i);
       fn();
     });
@@ -364,28 +486,23 @@ function slotTools(i: number) {
   add('RotateCw', '90° nach rechts', () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, 1)));
   add('FlipHorizontal2', 'Spiegeln', () => updateCrop((s) => mirror(s.meta, s.crop, s.rect)));
   add('Archive', 'In die Ablage (Entf)', () => {
-    commit(slotToTray(state, page, i));
+    commit(slotToTray(state, pg, i));
     hovered = null;
   });
   return bar;
 }
 
-const sheetWrap = $('sheet-wrap');
-sheetWrap.addEventListener('pointermove', (e) => {
+track.addEventListener('pointermove', (e) => {
   if (gesture) return;
-  const t = slotAt(e.clientX, e.clientY);
-  const h = t !== null && curSlots()[t] ? t : null;
-  if (h !== hovered) {
+  const hit = hitAt(e.clientX, e.clientY);
+  const h = hit && hit.i !== null && state.pages[hit.p]?.slots[hit.i] ? { p: hit.p, i: hit.i } : null;
+  if (!(h ? isAt(hovered, h.p, h.i) : hovered === null)) {
     hovered = h;
     requestRender();
   }
 });
-sheetWrap.addEventListener('pointerleave', (e) => {
-  const to = e.relatedTarget as Node | null;
-  if (to && sheetWrap.contains(to)) return;
-  const b = sheetWrap.getBoundingClientRect();
-  if (e.clientX > b.left && e.clientX < b.right && e.clientY > b.top && e.clientY < b.bottom) return;
-  if (hovered !== null) {
+track.addEventListener('pointerleave', () => {
+  if (hovered !== null && !gesture) {
     hovered = null;
     requestRender();
   }
@@ -612,36 +729,94 @@ function select(i: number | null) {
   requestRender();
 }
 
-// pointer gestures on the Sheet
-type Gesture = { kind: 'pan' | 'move'; slot: number; x: number; y: number; moved: boolean; ghost?: HTMLElement };
+// ---------- Active Page (carousel rules 3, 5, 10–14) ----------
+/** Make Page p the Active Page; slide now, or after the running gesture (rule 5). */
+function activatePage(p: number, slide = true) {
+  p = Math.max(0, Math.min(p, state.pages.length - 1));
+  if (p !== page) {
+    page = p;
+    selected = null;
+    hovered = null;
+    anim = null;
+    lastLayoutKey = '';
+  }
+  if (slide) {
+    slidePending = false;
+    frozenX = null;
+  } else slidePending = true;
+  syncControls();
+  // keep the track where it is while a gesture runs on a neighbour Page
+  if (!slide) {
+    buildPageEls();
+    renderNow();
+    placeTrackFrozen();
+  } else renderNow();
+}
+let frozenX: number | null = null;
+function placeTrackFrozen() {
+  if (frozenX === null) return;
+  track.classList.add('no-anim');
+  track.style.transform = `translateX(${frozenX}px)`;
+}
+function currentTrackX() {
+  const m = /translateX\((-?[\d.]+)px\)/.exec(track.style.transform);
+  return m ? parseFloat(m[1]) : 0;
+}
+function finishSlide() {
+  if (!slidePending) return;
+  slidePending = false;
+  frozenX = null;
+  renderNow();
+}
+$('nav-prev').onclick = () => activatePage(page - 1);
+$('nav-next').onclick = () => activatePage(page + 1);
+$('ghost-page').onclick = () => {
+  commit(addPage(state));
+  activatePage(state.pages.length - 1);
+};
+
+// pointer gestures on the Pages
+type Gesture = { kind: 'pan' | 'move'; page: number; slot: number; x: number; y: number; moved: boolean; ghost?: HTMLElement };
 let gesture: Gesture | null = null;
 
-let emptyPress: number | null = null;
-canvas.addEventListener('click', (e) => {
-  const i = slotAt(e.clientX, e.clientY);
-  if (i !== null && i === emptyPress && !curSlots()[i]) pickPhotos(i);
+let emptyPress: At | null = null;
+track.addEventListener('click', (e) => {
+  const hit = hitAt(e.clientX, e.clientY);
+  if (hit && hit.i !== null && emptyPress && isAt(emptyPress, hit.p, hit.i) && !state.pages[hit.p]?.slots[hit.i]) pickPhotos(hit.i, hit.p);
   emptyPress = null;
 });
-canvas.addEventListener('pointerdown', (e) => {
+track.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  const i = slotAt(e.clientX, e.clientY);
+  if ((e.target as HTMLElement).closest('.slot-tools, #ghost-page')) return;
+  const hit = hitAt(e.clientX, e.clientY);
+  if (!hit) {
+    select(null);
+    return;
+  }
+  if (hit.p !== page) {
+    frozenX = currentTrackX();
+    activatePage(hit.p, false);
+  }
+  const i = hit.i;
   if (i === null) {
     select(null);
+    finishSlide();
     return;
   }
   const wasSelected = selected === i;
   if (!curSlots()[i]) {
     // empty Slot: pick a file for exactly this Slot (UI v2 rule 14)
     select(null);
-    emptyPress = i;
+    emptyPress = { p: page, i };
+    finishSlide();
     return;
   }
   select(i);
-  canvas.setPointerCapture(e.pointerId);
-  gesture = { kind: wasSelected ? 'pan' : 'move', slot: i, x: e.clientX, y: e.clientY, moved: false };
+  track.setPointerCapture(e.pointerId);
+  gesture = { kind: wasSelected ? 'pan' : 'move', page, slot: i, x: e.clientX, y: e.clientY, moved: false };
 });
 
-canvas.addEventListener('pointermove', (e) => {
+track.addEventListener('pointermove', (e) => {
   if (!gesture) return;
   const dx = e.clientX - gesture.x;
   const dy = e.clientY - gesture.y;
@@ -654,7 +829,7 @@ canvas.addEventListener('pointermove', (e) => {
   } else {
     if (!gesture.moved) {
       gesture.moved = true;
-      const it = curSlots()[gesture.slot]!;
+      const it = state.pages[gesture.page].slots[gesture.slot]!;
       const g = document.createElement('img');
       g.className = 'drag-ghost';
       g.src = photos.url(it.photoId);
@@ -663,9 +838,9 @@ canvas.addEventListener('pointermove', (e) => {
     }
     gesture.ghost!.style.left = `${e.clientX - 45}px`;
     gesture.ghost!.style.top = `${e.clientY - 45}px`;
-    const t = slotAt(e.clientX, e.clientY);
-    const nt = t !== gesture.slot ? t : null;
-    if (nt !== dropTarget) {
+    const hit = hitAt(e.clientX, e.clientY);
+    const nt = hit && hit.i !== null && !(hit.p === gesture.page && hit.i === gesture.slot) ? { p: hit.p, i: hit.i } : null;
+    if (!(nt ? isAt(dropTarget, nt.p, nt.i) : dropTarget === null)) {
       dropTarget = nt;
       requestRender();
     }
@@ -676,7 +851,7 @@ canvas.addEventListener('pointermove', (e) => {
 
 /** Page thumbnail under a point (pages rule 8). */
 function thumbAt(x: number, y: number): number | null {
-  const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-page]');
+  const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('#pages [data-page]');
   return el ? Number(el.dataset.page) : null;
 }
 function markThumb(p: number | null) {
@@ -691,7 +866,7 @@ function overTray(x: number, y: number) {
 function endGesture(e: PointerEvent, cancelled = false) {
   const g = gesture;
   gesture = null;
-  if (!g) return;
+  if (!g) return finishSlide();
   g.ghost?.remove();
   $('tray').classList.remove('drop-target');
   markThumb(null);
@@ -699,48 +874,68 @@ function endGesture(e: PointerEvent, cancelled = false) {
   endCoalesce();
   if (g.kind === 'move' && g.moved && !cancelled) {
     const tp = thumbAt(e.clientX, e.clientY);
+    const hit = hitAt(e.clientX, e.clientY);
     if (overTray(e.clientX, e.clientY)) {
-      commit(slotToTray(state, page, g.slot));
+      commit(slotToTray(state, g.page, g.slot));
       select(null);
-    } else if (tp !== null && tp !== page) {
-      commit(moveToPage(state, page, g.slot, tp));
+    } else if (tp !== null && tp !== g.page) {
+      commit(moveToPage(state, g.page, g.slot, tp));
       select(null);
-    } else {
-      const t = slotAt(e.clientX, e.clientY);
-      if (t !== null && t !== g.slot) {
-        commit(moveSlot(state, page, g.slot, t));
-        select(t);
-      }
+    } else if (hit && hit.i !== null && !(hit.p === g.page && hit.i === g.slot)) {
+      // same Page: swap/move; another Page: swap/move across Pages (carousel rule 6)
+      commit(moveAcross(state, g.page, g.slot, hit.p, hit.i));
+      if (hit.p !== page) activatePage(Math.min(hit.p, state.pages.length - 1), false);
+      if (state.pages[page]?.slots[hit.i]) select(hit.i);
     }
   }
+  finishSlide();
   requestRender();
 }
-canvas.addEventListener('pointerup', (e) => endGesture(e));
-canvas.addEventListener('pointercancel', (e) => endGesture(e, true));
+track.addEventListener('pointerup', (e) => endGesture(e));
+track.addEventListener('pointercancel', (e) => endGesture(e, true));
 
-canvas.addEventListener('dblclick', (e) => {
-  const i = slotAt(e.clientX, e.clientY);
-  if (i === null || !curSlots()[i]) return;
-  select(i);
+track.addEventListener('dblclick', (e) => {
+  const hit = hitAt(e.clientX, e.clientY);
+  if (!hit || hit.i === null || !state.pages[hit.p]?.slots[hit.i]) return;
+  if (hit.p !== page) activatePage(hit.p);
+  select(hit.i);
   updateCrop(() => defaultCrop());
 });
 
 let wheelTimer = 0;
-canvas.addEventListener(
+let wheelLock = 0;
+let wheelAccum = 0;
+/** One Page per wheel notch / swipe over empty stage (carousel rules 12, 13). */
+function wheelStep(delta: number) {
+  wheelAccum += delta;
+  const now = performance.now();
+  if (Math.abs(wheelAccum) < 30 || now < wheelLock) return;
+  activatePage(page + Math.sign(wheelAccum));
+  wheelAccum = 0;
+  wheelLock = now + 350;
+}
+sheetArea.addEventListener(
   'wheel',
   (e) => {
-    const i = slotAt(e.clientX, e.clientY);
-    if (i === null || !curSlots()[i]) return;
+    const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    const hit = hitAt(e.clientX, e.clientY);
+    if (!horizontal && hit && hit.i !== null && state.pages[hit.p]?.slots[hit.i]) {
+      e.preventDefault();
+      if (hit.p !== page) activatePage(hit.p);
+      if (selected !== hit.i) select(hit.i);
+      const s = selectedCtx()!;
+      const b = cv().getBoundingClientRect();
+      const ox = (e.clientX - b.left) / view.scale - (s.rect.x + s.rect.w / 2);
+      const oy = (e.clientY - b.top) / view.scale - (s.rect.y + s.rect.h / 2);
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      updateCrop(() => zoomAt(s.meta, s.crop, s.rect, s.crop.zoom * factor, ox, oy), 'wheel');
+      clearTimeout(wheelTimer);
+      wheelTimer = window.setTimeout(endCoalesce, 400);
+      return;
+    }
+    if (state.pages.length < 2 && !horizontal) return;
     e.preventDefault();
-    if (selected !== i) select(i);
-    const s = selectedCtx()!;
-    const b = canvas.getBoundingClientRect();
-    const ox = (e.clientX - b.left) / view.scale - (s.rect.x + s.rect.w / 2);
-    const oy = (e.clientY - b.top) / view.scale - (s.rect.y + s.rect.h / 2);
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    updateCrop(() => zoomAt(s.meta, s.crop, s.rect, s.crop.zoom * factor, ox, oy), 'wheel');
-    clearTimeout(wheelTimer);
-    wheelTimer = window.setTimeout(endCoalesce, 400);
+    wheelStep(horizontal ? e.deltaX || e.deltaY : e.deltaY);
   },
   { passive: false },
 );
@@ -757,8 +952,18 @@ window.addEventListener('keydown', (e) => {
   }
   if (typing || tag === 'SELECT') return;
   if (e.key === 'Escape') return select(null);
+  if (e.key === 'PageUp' || e.key === 'PageDown') {
+    e.preventDefault();
+    return activatePage(page + (e.key === 'PageDown' ? 1 : -1));
+  }
   const s = selectedCtx();
-  if (!s) return;
+  if (!s) {
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && tag !== 'INPUT') {
+      e.preventDefault();
+      activatePage(page + (e.key === 'ArrowRight' ? 1 : -1));
+    }
+    return;
+  }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     commit(slotToTray(state, page, s.i));
@@ -776,7 +981,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 stage.addEventListener('pointerdown', (e) => {
-  if (e.target === stage) select(null);
+  if (e.target === stage || e.target === sheetArea || e.target === track) select(null);
 });
 
 // ---------- undo/redo (rule 26) ----------
@@ -801,15 +1006,18 @@ const hasTray = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].
 const welcome = $('welcome');
 const overWelcome = (e: DragEvent) => !welcome.hidden && welcome.contains(e.target as Node);
 /** Slot under a drag/drop, ignoring the Welcome card (dropping there fills in order, rule 22). */
-const dropSlot = (e: DragEvent) => (overWelcome(e) ? null : slotAt(e.clientX, e.clientY));
+const dropHit = (e: DragEvent) => (overWelcome(e) ? null : hitAt(e.clientX, e.clientY));
+const overGhost = (e: DragEvent) => !!(e.target as HTMLElement | null)?.closest?.('#ghost-page');
 window.addEventListener('dragover', (e) => {
   if (!hasFiles(e) && !hasTray(e)) return;
   e.preventDefault();
   e.dataTransfer!.dropEffect = hasTray(e) ? 'move' : 'copy';
   welcome.classList.toggle('drop-target', overWelcome(e));
   markThumb(thumbAt(e.clientX, e.clientY));
-  const t = dropSlot(e);
-  if (t !== dropTarget) {
+  $('ghost-page').classList.toggle('drop-target', overGhost(e));
+  const h = dropHit(e);
+  const t = h && h.i !== null ? { p: h.p, i: h.i } : null;
+  if (!(t ? isAt(dropTarget, t.p, t.i) : dropTarget === null)) {
     dropTarget = t;
     requestRender();
   }
@@ -824,14 +1032,23 @@ window.addEventListener('dragleave', (e) => {
 window.addEventListener('drop', (e) => {
   if (!hasFiles(e) && !hasTray(e)) return;
   e.preventDefault();
-  const t = dropSlot(e);
+  const h = dropHit(e);
   const tp = thumbAt(e.clientX, e.clientY);
+  const ghost = overGhost(e);
   markThumb(null);
   welcome.classList.remove('drop-target');
+  $('ghost-page').classList.remove('drop-target');
   dropTarget = null;
+  // a drop onto another Page makes it the Active Page (carousel rule 7)
+  if (h && h.p !== page) activatePage(h.p);
+  const t = h ? h.i : null;
   if (hasTray(e)) {
     const idx = Number(e.dataTransfer!.getData(TRAY_MIME));
-    if (tp !== null) {
+    if (ghost) {
+      commit(addPage(state));
+      commit(trayToPage(state, idx, state.pages.length - 1));
+      activatePage(state.pages.length - 1);
+    } else if (tp !== null) {
       commit(trayToPage(state, idx, tp));
       requestRender();
     } else if (t !== null) {
@@ -841,7 +1058,11 @@ window.addEventListener('drop', (e) => {
     return;
   }
   const files = [...e.dataTransfer!.files];
-  if (tp !== null) addFiles(files, undefined, tp);
+  if (ghost) {
+    commit(addPage(state));
+    const last = state.pages.length - 1;
+    void addFiles(files, undefined, last).then(() => activatePage(state.pages.length - 1));
+  } else if (tp !== null) addFiles(files, undefined, tp);
   else addFiles(files, t ?? undefined);
 });
 
@@ -867,8 +1088,9 @@ function renderTray() {
 }
 
 let pickTarget: number | undefined;
-function pickPhotos(target?: number) {
+function pickPhotos(target?: number, p = page) {
   pickTarget = target;
+  if (p !== page) activatePage(p);
   inp('file-photos').click();
 }
 $('add-photos').onclick = () => pickPhotos();
@@ -1022,13 +1244,26 @@ $('pc-pdf').onclick = () => {
 };
 $('pc-cancel').onclick = () => closeCard();
 
+// ---------- New collage (carousel rules 15–17) ----------
+const newCard = $<HTMLDialogElement>('new-card');
+$('new-collage').onclick = () => {
+  newCard.showModal();
+  $('nc-keep').focus();
+};
+function startNew(keep: boolean) {
+  newCard.close();
+  select(null);
+  commit(newCollage(state, keep));
+  activatePage(0);
+  toast('Neue Collage begonnen – Strg+Z holt alles zurück.', 'info');
+}
+$('nc-keep').onclick = () => startNew(true);
+$('nc-reset').onclick = () => startNew(false);
+$('nc-cancel').onclick = () => newCard.close();
+
 // ---------- Page strip (pages rules 1–8) ----------
 function goPage(p: number) {
-  page = Math.max(0, Math.min(p, state.pages.length - 1));
-  selected = null;
-  hovered = null;
-  syncControls();
-  renderNow();
+  activatePage(p);
 }
 let thumbsKey = '';
 function renderPages() {
@@ -1209,6 +1444,7 @@ window.addEventListener('pagehide', () => void flushSave());
     return anim !== null;
   },
   slotRectsPx: () => slotsMm().map(toPx),
+  slotRectsPxOf: (p: number) => slotsMm(p).map(toPx),
   flushSave,
   preparePrint,
   renderOutput,

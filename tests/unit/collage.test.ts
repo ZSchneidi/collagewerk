@@ -133,3 +133,32 @@ describe('Legacy v1 collage (rule 10)', () => {
     expect('slots' in c).toBe(false);
   });
 });
+
+describe('Carousel: across Pages and Neu (carousel rules 6, 15, 16)', () => {
+  it('swaps across Pages with Crop and Tilt, or moves into an empty Slot', async () => {
+    const { moveAcross, newCollage } = await import('../../src/model/collage');
+    let c = n(addPhotos(createCollage(), ps('a', 'b', 'c', 'd', 'e', 'f')));
+    c.pages[0].slots[2]!.crop.zoom = 2;
+    c.pages[0].slots[2]!.tilt = 5;
+    c = n(moveAcross(c, 0, 2, 1, 0));
+    expect(pages(c)).toEqual([['a', 'b', 'e', 'd'], ['c', 'f']]);
+    expect(c.pages[1].slots[0]!.crop.zoom).toBe(2);
+    expect(c.pages[1].slots[0]!.tilt).toBe(5);
+    c = n(addPage(c));
+    c = n(moveAcross(c, 1, 1, 2, 3));
+    expect(pages(c)).toEqual([['a', 'b', 'e', 'd'], ['c', null, null, null], [null, null, null, 'f']]);
+    // moving the only Photo off the last Page removes that Page
+    c = n(moveAcross(c, 2, 3, 1, 1));
+    expect(pages(c)).toEqual([['a', 'b', 'e', 'd'], ['c', 'f']]);
+
+    const styled = { ...c, slotCount: 6, sheet: { ...c.sheet, preset: 'A3' }, style: { ...c.style, frame: 'white' as const } };
+    const kept = n(newCollage(styled, true));
+    expect(pages(kept)).toEqual([[null, null, null, null, null, null]]);
+    expect(kept.tray).toEqual([]);
+    expect(kept.photos).toEqual({});
+    expect(kept.sheet.preset).toBe('A3');
+    expect(kept.style.frame).toBe('white');
+    const reset = n(newCollage(styled, false));
+    expect(reset).toEqual(createCollage());
+  });
+});

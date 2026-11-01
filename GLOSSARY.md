@@ -77,3 +77,15 @@ _Avoid_: random rotation, chaos, Verstreuen-Modus
 
 **Tilt**: The angle by which a Photo with its Frame is turned within its Slot under Scatter. Not the 90° rotation of the picture inside the Crop.
 _Avoid_: rotation, angle (alone)
+
+**Page carousel**: The main view that shows all Pages side by side at full size on one horizontal track, with the Active Page centred and its neighbours peeking in at the edges.
+_Avoid_: slider, gallery, filmstrip (that is a Template), Karussell-Ansicht
+
+**Active Page**: The Page currently centred in the Page carousel. Settings that act on "this Page" (last-Page Slot count, Seite löschen) refer to it.
+_Avoid_: current page, selected page, focused page
+
+**Ghost Page**: The dashed "+ Seite" placeholder after the last Page in the Page carousel. Clicking it or dropping Photos on it appends a Page; it is never printed.
+_Avoid_: empty page, add button, placeholder page
+
+**New collage**: The "Neu" action that removes all Photos, Pages and the tray, either keeping the current settings or resetting everything to the defaults.
+_Avoid_: reset (alone), clear, wipe

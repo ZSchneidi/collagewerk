@@ -31,3 +31,10 @@
 - Vorlagen mit Polygonen (Diagonal) und Dekoration (Film, Rahmen-Raster) über `special`-Builder in einem „wide frame“ (u = lange Seite) und Rückabbildung je Ausrichtung.
 - Stil wird nur im Modus „Frei“ angewendet (`styleActive`). Scatter-Winkel deterministisch aus Seed + Seite + Platz; Hand-Neigung in `Placed.tilt`.
 - Bugfixes unterwegs: Strg+Z wirkte nicht, solange eine Checkbox fokussiert war; Seiten-Miniaturen verschoben die Leiste beim späten Zeichnen.
+
+## 2026-11-01 – Seiten-Karussell + „Neu“ (Spec `docs/specs/collagewerk-carousel.md`)
+- Jede Seite hat eigenes Canvas + Overlay in `#track`; die aktive Seite trägt die alten IDs (`#sheet`, `#overlay`, `#sheet-wrap`, `#sheet-label`), damit Styles/Tests weiter greifen.
+- Seiten ±2 um die aktive werden in voller Auflösung gezeichnet, die übrigen mit 35 % Auflösung; ein Schlüssel pro Seite verhindert unnötiges Neuzeichnen.
+- Klick/Ziehen auf einer Nachbarseite: Seite wird sofort aktiv, der Track bleibt aber stehen („frozenX“), bis die Geste endet – sonst würde die Seite unter dem Mauszeiger wegrutschen.
+- Mausrad: über einem Foto Zoom, sonst eine Seite pro Raste (gesperrt 350 ms); horizontal/Shift immer Seitenwechsel. (Vereinfachung gegenüber Regel 12: Schritt statt freiem Scrollen mit Einrasten.)
+- „Neu“ löscht Fotos/Seiten/Ablage als ein Undo-Schritt; verwaiste Fotos fliegen erst beim nächsten Start aus IndexedDB.

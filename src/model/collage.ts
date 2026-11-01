@@ -387,3 +387,25 @@ export function prunePhotos(c0: Collage): Collage {
 }
 
 export const photoCount = (c: Collage) => allPlaced(c).length;
+
+/** Drag a Photo onto a Slot of another Page: swap, or move into an empty Slot (carousel rule 6). */
+export function moveAcross(c0: Collage, fp: number, from: number, tp: number, to: number): Collage {
+  if (fp === tp) return moveSlot(c0, fp, from, to);
+  const src = c0.pages[fp]?.slots[from];
+  const dst = c0.pages[tp];
+  if (!src || !dst || to < 0 || to >= dst.slots.length || isSame(c0)) return c0;
+  const c = clone(c0);
+  const other = c.pages[tp].slots[to];
+  c.pages[tp].slots[to] = c.pages[fp].slots[from];
+  c.pages[fp].slots[from] = other ?? null;
+  if (!other) dropIfEmptyLast(c, fp);
+  return c;
+}
+
+/** "Neu" (carousel rules 15, 16): one empty Page, empty tray; optionally keep all settings. */
+export function newCollage(c0: Collage, keepSettings: boolean): Collage {
+  const fresh = createCollage();
+  if (!keepSettings) return fresh;
+  const n = c0.slotCount;
+  return { ...structuredClone(c0), pages: [{ slots: emptySlots(n) }], tray: [], photos: {} };
+}

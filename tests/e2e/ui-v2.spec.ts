@@ -25,7 +25,7 @@ test('Theme: system default, toggle overrides and is remembered (rules 1, 2)', a
 
 test('Top bar order and icons with shortcut tooltips (rules 4, 9)', async ({ page }) => {
   const ids = await page.locator('#topbar button').evaluateAll((bs) => bs.map((b) => b.id));
-  expect(ids).toEqual(['undo', 'redo', 'open-file', 'save-file', 'theme', 'export-png', 'export-pdf', 'print', 'print-info']);
+  expect(ids).toEqual(['undo', 'redo', 'new-collage', 'open-file', 'save-file', 'theme', 'export-png', 'export-pdf', 'print', 'print-info']);
   for (const id of ids) await expect(page.locator(`#${id} svg.ico`)).toHaveCount(1);
   await expect(page.locator('#undo')).toHaveAttribute('title', 'Rückgängig (Strg+Z)');
   await page.hover('#print-info');
