@@ -35,7 +35,7 @@ function changed() {
   scheduleSave();
   syncControls();
   renderTray();
-  requestRender();
+  renderNow();
 }
 
 // ---------- persistence (rule 27) ----------
@@ -126,6 +126,11 @@ function slotAt(clientX: number, clientY: number): number | null {
 let raf = 0;
 function requestRender() {
   if (!raf) raf = requestAnimationFrame(render);
+}
+/** Synchronous render so geometry (hit-testing) is current right after a change. */
+function renderNow() {
+  if (raf) cancelAnimationFrame(raf);
+  render();
 }
 function render() {
   raf = 0;
