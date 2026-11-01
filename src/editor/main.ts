@@ -144,7 +144,7 @@ function render() {
 let dropTarget: number | null = null;
 function renderOverlay() {
   const slots = slotsMm();
-  overlay.innerHTML = '';
+  overlay.replaceChildren();
   slots.forEach((r, i) => {
     const p = toPx(r);
     const el = document.createElement('div');
@@ -209,7 +209,7 @@ function renderTemplates() {
   const key = `${state.slotCount}|${state.templateIndex}|${state.sheet.orientation}|${state.sheet.w}|${state.sheet.h}|${state.gap}|${state.margin}`;
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  box.innerHTML = '';
+  box.replaceChildren();
   const { w, h } = sheetSize(state.sheet);
   const k = 56 / Math.max(w, h);
   tpls.forEach((t, i) => {
@@ -218,10 +218,21 @@ function renderTemplates() {
     b.dataset.template = t.id;
     b.setAttribute('aria-pressed', String(i === state.templateIndex));
     const rects = computeSlots({ ...state, templateIndex: i });
-    const svg = `<svg width="${w * k}" height="${h * k}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="none" stroke="currentColor" stroke-width="${2 / k}"/>${rects
-      .map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="currentColor" opacity=".45"/>`)
-      .join('')}</svg>`;
-    b.innerHTML = `${svg}<span>${t.label}</span>`;
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', String(w * k));
+    svg.setAttribute('height', String(h * k));
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    const rect = (x: number, y: number, rw: number, rh: number, attrs: Record<string, string>) => {
+      const e = document.createElementNS(NS, 'rect');
+      for (const [a, v] of Object.entries({ x: String(x), y: String(y), width: String(rw), height: String(rh), ...attrs })) e.setAttribute(a, v);
+      svg.appendChild(e);
+    };
+    rect(0, 0, w, h, { fill: 'none', stroke: 'currentColor', 'stroke-width': String(2 / k) });
+    for (const r of rects) rect(r.x, r.y, r.w, r.h, { fill: 'currentColor', opacity: '.45' });
+    const label = document.createElement('span');
+    label.textContent = t.label;
+    b.append(svg, label);
     b.onclick = () => commit({ ...state, templateIndex: i });
     box.appendChild(b);
   });
@@ -482,7 +493,7 @@ window.addEventListener('drop', (e) => {
 
 function renderTray() {
   const box = $('tray-items');
-  box.innerHTML = '';
+  box.replaceChildren();
   state.tray.forEach((it, i) => {
     const d = document.createElement('div');
     d.className = 'tray-item';
@@ -575,7 +586,7 @@ async function preparePrint() {
   const { w, h } = sheetSize(state.sheet);
   const blob = await toBlob(await renderOutput(300));
   const root = $('print-root');
-  root.innerHTML = '';
+  root.replaceChildren();
   const img = new Image();
   img.src = URL.createObjectURL(blob);
   img.style.width = `${w}mm`;

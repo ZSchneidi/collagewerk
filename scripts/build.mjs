@@ -21,7 +21,7 @@ const targets = {
   firefox: {
     ...common,
     background: { scripts: ['background.js'] },
-    browser_specific_settings: { gecko: { id: 'collagewerk@zschneidi', strict_min_version: '115.0' } },
+    browser_specific_settings: { gecko: { id: 'collagewerk@zschneidi', strict_min_version: '115.0', data_collection_permissions: { required: ['none'] } } },
   },
 };
 

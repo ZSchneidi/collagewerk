@@ -11,6 +11,7 @@ test('German editor with default A4 and 4 Slots (rules 3, 4)', async ({ page }) 
 });
 
 test('Sheet, Slot count, Template, Gap and Margin recompute Slots (rules 5–9)', async ({ page }) => {
+  await expect(page.locator('#custom-size')).toBeHidden();
   await page.selectOption('#preset', 'A5');
   await page.click('#orient-landscape');
   let s = await getState(page);
@@ -30,6 +31,7 @@ test('Sheet, Slot count, Template, Gap and Margin recompute Slots (rules 5–9)'
   expect(after[0].x).toBeGreaterThan(before[0].x);
 
   await page.selectOption('#preset', 'custom');
+  await expect(page.locator('#custom-size')).toBeVisible();
   await page.fill('#custom-w', '300');
   await page.fill('#custom-h', '120');
   await page.locator('#custom-h').blur();
