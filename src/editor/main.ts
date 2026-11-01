@@ -633,7 +633,11 @@ window.addEventListener('pagehide', () => void flushSave());
   preparePrint,
   renderOutput,
   ready: (async () => {
-    await restore();
+    syncControls();
+    renderTray();
+    requestRender();
+    // never let a slow/blocked IndexedDB keep the editor from working
+    await Promise.race([restore().catch((e) => console.warn('restore failed', e)), new Promise((r) => setTimeout(r, 3000))]);
     syncControls();
     renderTray();
     requestRender();
