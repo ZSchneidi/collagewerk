@@ -62,9 +62,15 @@ export async function dropAndWait(page: Page, files: FileSpec[], at: { slot: num
   await expect.poll(() => page.evaluate(() => Object.keys((window as any).__cw.state.photos).length)).toBe(before + expectAdded);
 }
 
-export const slotNames = async (page: Page) => {
+/** names in the Slots of the current Page (or Page `p`) */
+export const slotNames = async (page: Page, p?: number) => {
   const s = await getState(page);
-  return s.slots.map((x) => (x ? s.photos[x.photoId].name : null));
+  const idx = p ?? (await page.evaluate(() => (window as any).__cw.page));
+  return s.pages[idx].slots.map((x) => (x ? s.photos[x.photoId].name : null));
+};
+export const pageNames = async (page: Page) => {
+  const s = await getState(page);
+  return s.pages.map((pg) => pg.slots.map((x) => (x ? s.photos[x.photoId].name : null)));
 };
 export const trayNames = async (page: Page) => {
   const s = await getState(page);

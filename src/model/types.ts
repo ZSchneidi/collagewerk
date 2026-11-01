@@ -21,6 +21,30 @@ export interface PhotoMeta {
 export interface Placed {
   photoId: string;
   crop: Crop;
+  /** hand-set Tilt in degrees (Scatter); undefined = seeded random */
+  tilt?: number;
+}
+
+/** One printed Sheet with its own Slots. `count` = hand-set Slot count of the last Page (rule 4). */
+export interface Page {
+  slots: (Placed | null)[];
+  count?: number;
+}
+
+export type FrameKind = 'none' | 'white' | 'polaroid' | 'color';
+export type EdgeKind = 'hard' | 'soft' | 'vignette';
+
+export interface Style {
+  frame: FrameKind;
+  frameColor: string;
+  /** mm */
+  frameWidth: number;
+  /** corner radius in mm */
+  radius: number;
+  shadow: boolean;
+  edges: EdgeKind;
+  scatter: boolean;
+  seed: number;
 }
 
 export type Orientation = 'portrait' | 'landscape';
@@ -51,12 +75,16 @@ export interface Collage {
   samePhoto: boolean;
   /** Cut marks (only effective in 'fixed') */
   cutMarks: boolean;
+  /** Photos per Page */
   slotCount: number;
-  templateIndex: number;
+  templateId: string;
+  /** Diagonal Template divider angle in degrees */
+  slant: number;
   gap: number;
   margin: number;
   background: string;
-  slots: (Placed | null)[];
+  style: Style;
+  pages: Page[];
   tray: Placed[];
   photos: Record<string, PhotoMeta>;
 }
@@ -66,4 +94,26 @@ export interface Rect {
   y: number;
   w: number;
   h: number;
+}
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/** A Slot: bounding rectangle plus, for non-rectangular Templates, its polygon. */
+export interface Slot extends Rect {
+  poly?: Point[];
+}
+
+/** Printed Template decoration (film bands, sprocket holes, frame lines). */
+export interface Decor {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fill?: string;
+  stroke?: string;
+  lineWidth?: number;
+  radius?: number;
 }

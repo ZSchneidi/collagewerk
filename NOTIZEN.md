@@ -22,3 +22,12 @@
 - Biometrie-Hilfslinien: Scheitel 3–7 mm, Augen 18–23 mm, Kinn 36–40 mm von oben (nur Editor). Slot-Toolbar wird auf einem Slot mit Hilfslinien ausgeblendet.
 - Hinweis im Passbild-Tooltip: Personalausweis/Reisepass seit Mai 2025 nur digital.
 - Testhärtung: `__cw.animating` statt Pixel-Timing; Dateidialog-Test mit Wiederholung (headless Chromium verliert unter Last gelegentlich den Dialog).
+
+## 2026-11-01 – Seiten, PDF, neue Vorlagen, Stil (Spec `docs/specs/collagewerk-pages-styles.md`)
+- Datenmodell: `Collage.pages[]` statt `slots`; `templateId` statt `templateIndex`. `withDefaults()` migriert v1-Autosaves/-Dateien (Dateiformat jetzt Version 2, liest 1).
+- `normalize()` hält: Seiten außer der letzten haben „Fotos pro Seite“ Plätze; die letzte (bei mehreren) schrumpft auf ihre Fotos, außer `count` ist von Hand gesetzt (gilt, bis sie voll ist).
+- PDF ohne Bibliothek: `src/editor/pdf.ts` schreibt je Seite ein JPEG (DCTDecode) mit MediaBox = Bogen in pt; in Tests mit `qpdf --check` und `pdfinfo` geprüft.
+- Firefox/Chrome können die Papiergröße nicht vorwählen → Druck-Karte vor dem Dialog + PDF-Weg.
+- Vorlagen mit Polygonen (Diagonal) und Dekoration (Film, Rahmen-Raster) über `special`-Builder in einem „wide frame“ (u = lange Seite) und Rückabbildung je Ausrichtung.
+- Stil wird nur im Modus „Frei“ angewendet (`styleActive`). Scatter-Winkel deterministisch aus Seed + Seite + Platz; Hand-Neigung in `Placed.tilt`.
+- Bugfixes unterwegs: Strg+Z wirkte nicht, solange eine Checkbox fokussiert war; Seiten-Miniaturen verschoben die Leiste beim späten Zeichnen.

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { dropAndWait, dropFiles, getState, openEditor, slotNames, slotRects, trayNames } from './helpers';
+import { dropAndWait, dropFiles, getState, openEditor, pageNames, slotNames, slotRects, trayNames } from './helpers';
 
 test.beforeEach(({ page }) => openEditor(page));
 
@@ -21,9 +21,9 @@ test('Sheet, Slot count, Template, Gap and Margin recompute Slots (rules 5–9)'
 
   await page.locator('#count').fill('6');
   await expect(page.locator('#overlay .slot-ui')).toHaveCount(6);
-  await expect(page.locator('#templates button')).toHaveCount(3);
+  await expect(page.locator('#templates button')).toHaveCount(9);
   await page.locator('#templates button[data-template=hero]').click();
-  expect((await getState(page)).templateIndex).toBe(1);
+  expect((await getState(page)).templateId).toBe('hero');
   const before = await slotRects(page);
   await page.locator('#gap').fill('10');
   await page.locator('#margin').fill('15');
@@ -40,7 +40,8 @@ test('Sheet, Slot count, Template, Gap and Margin recompute Slots (rules 5–9)'
 });
 
 test('Single drop onto a Slot; occupied Slot sends old Photo to tray (rule 11)', async ({ page }) => {
-  await dropAndWait(page, [{ name: 'a.jpg' }], { slot: 2 });
+  const r2 = (await slotRects(page))[2]; // corner of Slot 2, clear of the Welcome card
+  await dropAndWait(page, [{ name: 'a.jpg' }], { x: r2.x + r2.w - 10, y: r2.y + 10 });
   expect(await slotNames(page)).toEqual([null, null, 'a.jpg', null]);
   await dropAndWait(page, [{ name: 'b.jpg', color: '#3c3' }], { slot: 2 });
   expect(await slotNames(page)).toEqual([null, null, 'b.jpg', null]);
@@ -48,12 +49,13 @@ test('Single drop onto a Slot; occupied Slot sends old Photo to tray (rule 11)',
   await expect(page.locator('.tray-item')).toHaveCount(1);
 });
 
-test('Multi drop fills empty Slots in order, overflow to tray (rule 12)', async ({ page }) => {
+test('Multi drop fills empty Slots in order, overflow onto a new Page (rule 12, pages rule 2)', async ({ page }) => {
   const r3 = (await slotRects(page))[3]; // corner of Slot 3, clear of the Welcome card
   await dropAndWait(page, [{ name: 'x.jpg' }], { x: r3.x + r3.w - 10, y: r3.y + r3.h - 10 });
   await dropAndWait(page, ['a', 'b', 'c', 'd'].map((n) => ({ name: `${n}.jpg` })), { x: 600, y: 900 });
-  expect(await slotNames(page)).toEqual(['a.jpg', 'b.jpg', 'c.jpg', 'x.jpg']);
-  expect(await trayNames(page)).toEqual(['d.jpg']);
+  expect(await pageNames(page)).toEqual([['a.jpg', 'b.jpg', 'c.jpg', 'x.jpg'], ['d.jpg']]);
+  expect(await trayNames(page)).toEqual([]);
+  await expect(page.locator('#toast')).toContainText('1 neue Seite angelegt');
 });
 
 test('Unsupported file is rejected with a message (rule 14)', async ({ page }) => {
@@ -70,13 +72,13 @@ test('EXIF orientation is applied (rule 15)', async ({ page }) => {
   expect([meta.w, meta.h]).toEqual([200, 400]);
 });
 
-test('Slot count change keeps Photos, removed ones go to tray (rule 16)', async ({ page }) => {
+test('Photos per Page change repaginates, nothing goes to the tray (pages rule 6)', async ({ page }) => {
   await dropAndWait(page, ['a', 'b', 'c', 'd'].map((n) => ({ name: `${n}.jpg` })), { x: 600, y: 900 });
   await page.locator('#count').fill('2');
-  expect(await slotNames(page)).toEqual(['a.jpg', 'b.jpg']);
-  expect(await trayNames(page)).toEqual(['c.jpg', 'd.jpg']);
+  expect(await pageNames(page)).toEqual([['a.jpg', 'b.jpg'], ['c.jpg', 'd.jpg']]);
+  expect(await trayNames(page)).toEqual([]);
   await page.locator('#count').fill('5');
-  expect(await slotNames(page)).toEqual(['a.jpg', 'b.jpg', null, null, null]);
+  expect(await pageNames(page)).toEqual([['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', null]]);
 });
 
 test('Drag between Slots swaps; drag to tray removes (rules 17, 18)', async ({ page }) => {

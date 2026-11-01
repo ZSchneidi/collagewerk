@@ -56,3 +56,24 @@ _Avoid_: crop marks, trim lines, Schneidelinien
 
 **Biometric guide**: An editor-only overlay on a Passbild Slot (centre line, chin-to-crown band, eye-line zone) to help align a face. Never printed and not an official check.
 _Avoid_: face guide, template overlay, Passbild-Prüfung
+
+**Page**: One printed Sheet of the Collage with its own Slots and Photos. A Collage has one or more Pages; all Pages share the Sheet, Layout mode, Template, Gap, Margin and Style.
+_Avoid_: sheet (that is the paper format), side, Blatt, Seite (in code/docs)
+
+**Photos per Page**: The Slot count every Page uses, set by the slider. Only the last Page may have fewer Slots.
+_Avoid_: slot count (when talking about all Pages), photos per sheet
+
+**Page strip**: The row of small Page thumbnails under the stage used to switch Pages, drop Photos onto another Page and add or delete Pages.
+_Avoid_: pager, page bar, tabs
+
+**Style**: The look applied to every Photo in Frei mode: Frame, corner radius, shadow, edge effect and Scatter.
+_Avoid_: theme, effect, filter
+
+**Frame**: A border drawn around the Photo inside its Slot (white, Polaroid with a wider bottom, or a colour); the Photo shrinks to make room.
+_Avoid_: border (alone), passepartout, Rand (that is the Margin)
+
+**Scatter**: Style option that tilts every Photo by a small random angle, like prints lying on a table. Each Photo's Tilt can be set by hand.
+_Avoid_: random rotation, chaos, Verstreuen-Modus
+
+**Tilt**: The angle by which a Photo with its Frame is turned within its Slot under Scatter. Not the 90° rotation of the picture inside the Crop.
+_Avoid_: rotation, angle (alone)

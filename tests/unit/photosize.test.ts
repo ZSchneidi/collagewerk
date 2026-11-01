@@ -49,13 +49,14 @@ describe('Capacity and grid (rules 2–4)', () => {
 });
 
 describe('Capacity shrinks (rule 5) and mode switch back (rule 6)', () => {
-  it('photos of removed Slots go to the tray', () => {
+  it('Photos of removed Slots move to further Pages', () => {
     let c = setSamePhoto(fixed(), false);
     c = addPhotos(c, ['a', 'b', 'c', 'd', 'e', 'f'].map(p));
     c = normalize({ ...c, margin: 20 }); // 60×110 → 1×2
     expect(capacity(c).max).toBe(2);
-    expect(ids(c.slots)).toEqual(['a', 'b']);
-    expect(ids(c.tray)).toEqual(['c', 'd', 'e', 'f']);
+    // pages rule 6 supersedes photo sizes rule 5: the Photos flow onto more Pages instead of the tray
+    expect(c.pages.map((pg) => ids(pg.slots))).toEqual([['a', 'b'], ['c', 'd'], ['e', 'f']]);
+    expect(c.tray).toEqual([]);
   });
   it('nothing fits → 0 Slots, all to tray; fitSheet finds the smallest preset', () => {
     let c = setSamePhoto(fixed(), false);
@@ -68,10 +69,10 @@ describe('Capacity shrinks (rule 5) and mode switch back (rule 6)', () => {
     expect(f.slotCount).toBe(1);
   });
   it('switching back to free keeps Photos and restores the Template choice', () => {
-    let c = { ...createCollage(), templateIndex: 1 };
+    let c = { ...createCollage(), templateId: 'large3' };
     c = setLayoutMode(c, 'fixed');
     c = setLayoutMode(c, 'free');
-    expect(c.templateIndex).toBe(1);
+    expect(c.templateId).toBe('large3');
   });
 });
 
@@ -85,27 +86,27 @@ describe('Same photo mode (rules 11–15)', () => {
   it('one drop fills every Slot; extra Photos to tray; replacing sends the old one once', () => {
     let c = fixed();
     c = addPhotos(c, ['a', 'b'].map(p), 3);
-    expect(ids(c.slots)).toEqual(['a', 'a', 'a', 'a', 'a', 'a']);
+    expect(ids(c.pages[0].slots)).toEqual(['a', 'a', 'a', 'a', 'a', 'a']);
     expect(ids(c.tray)).toEqual(['b']);
     c = addPhotos(c, [p('x')], 2);
-    expect(ids(c.slots)).toEqual(['x', 'x', 'x', 'x', 'x', 'x']);
+    expect(ids(c.pages[0].slots)).toEqual(['x', 'x', 'x', 'x', 'x', 'x']);
     expect(ids(c.tray)).toEqual(['b', 'a']);
   });
   it('Crop applies to all; new Slots get the same Photo + Crop', () => {
     let c = addPhotos(setSlotCount(fixed(), 2), [p('a')]);
-    c = setCrop(c, 1, { zoom: 2, rot: 90, mirror: true, fx: 0.4, fy: 0.6 });
-    expect(c.slots.every((s) => s!.crop.zoom === 2 && s!.crop.rot === 90)).toBe(true);
+    c = setCrop(c, 0, 1, { zoom: 2, rot: 90, mirror: true, fx: 0.4, fy: 0.6 });
+    expect(c.pages[0].slots.every((s) => s!.crop.zoom === 2 && s!.crop.rot === 90)).toBe(true);
     c = normalize(setSlotCount(c, 5));
-    expect(ids(c.slots)).toEqual(['a', 'a', 'a', 'a', 'a']);
-    expect(c.slots[4]!.crop.zoom).toBe(2);
+    expect(ids(c.pages[0].slots)).toEqual(['a', 'a', 'a', 'a', 'a']);
+    expect(c.pages[0].slots[4]!.crop.zoom).toBe(2);
   });
   it('to tray empties all Slots and puts one Photo in the tray; tray → Slot fills all', () => {
     let c = addPhotos(fixed(), [p('a')]);
-    c = slotToTray(c, 2);
-    expect(ids(c.slots)).toEqual([null, null, null, null, null, null]);
+    c = slotToTray(c, 0, 2);
+    expect(ids(c.pages[0].slots)).toEqual([null, null, null, null, null, null]);
     expect(ids(c.tray)).toEqual(['a']);
-    c = trayToSlot(c, 0, 4);
-    expect(ids(c.slots)).toEqual(['a', 'a', 'a', 'a', 'a', 'a']);
+    c = trayToSlot(c, 0, 0, 4);
+    expect(ids(c.pages[0].slots)).toEqual(['a', 'a', 'a', 'a', 'a', 'a']);
     expect(c.tray).toEqual([]);
   });
   it('reducing the count does not duplicate the Photo into the tray', () => {
@@ -118,12 +119,12 @@ describe('Same photo mode (rules 11–15)', () => {
   it('turning off keeps copies and allows separate Crops; turning on keeps the first, others to tray', () => {
     let c = addPhotos(setSlotCount(fixed(), 3), [p('a')]);
     c = setSamePhoto(c, false);
-    c = setCrop(c, 1, { zoom: 3, rot: 0, mirror: false, fx: 0.5, fy: 0.5 });
-    expect(c.slots.map((s) => s!.crop.zoom)).toEqual([1, 3, 1]);
-    c = addPhotos(c, [p('b')], 2);
+    c = setCrop(c, 0, 1, { zoom: 3, rot: 0, mirror: false, fx: 0.5, fy: 0.5 });
+    expect(c.pages[0].slots.map((s) => s!.crop.zoom)).toEqual([1, 3, 1]);
+    c = addPhotos(c, [p('b')], 2, 0);
     expect(ids(c.tray)).toEqual(['a']); // the replaced copy
     c = normalize(setSamePhoto(c, true));
-    expect(ids(c.slots)).toEqual(['a', 'a', 'a']);
+    expect(ids(c.pages[0].slots)).toEqual(['a', 'a', 'a']);
     expect(ids(c.tray)).toEqual(['a', 'b']);
   });
 });

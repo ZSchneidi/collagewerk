@@ -20,7 +20,8 @@
       </div>
       <div class="spacer"></div>
       <button id="theme" class="icon-btn" type="button" data-icon="Moon" data-tip="Dunkles Design" aria-label="Design umschalten"></button>
-      <button id="export-png" class="btn" type="button" data-icon="ImageDown" data-tip="Als PNG (300 dpi) exportieren">PNG</button>
+      <button id="export-png" class="btn" type="button" data-icon="ImageDown" data-tip="Als PNG (300 dpi) exportieren – eine Datei pro Seite">PNG</button>
+      <button id="export-pdf" class="btn" type="button" data-icon="FileDown" data-tip="Als PDF in exakter Bogengröße – alle Seiten">PDF</button>
       <div class="print-wrap">
         <button id="print" class="btn primary" type="button" data-icon="Printer" data-tip="Collage drucken (Strg+P)">Drucken</button>
         <button id="print-info" class="icon-btn small" type="button" data-icon="Info" aria-label="Hinweis zum Drucken" aria-describedby="print-hint"></button>
@@ -76,6 +77,10 @@
           <div id="free-opts" class="stack">
             <div class="sub">Vorlage</div>
             <div id="templates" class="templates"></div>
+            <label id="slant-row" class="slider" hidden>
+              <span class="label">Neigung <output id="slant-out"></output></span>
+              <input id="slant" type="range" min="5" max="20" step="1" />
+            </label>
           </div>
           <label class="slider">
             <span class="label">Abstand <output id="gap-out"></output></span>
@@ -92,10 +97,57 @@
         </div>
       </details>
 
+      <details class="card" id="card-style" open>
+        <summary><span data-icon="Sparkles"></span>Stil<span class="chev" data-icon="ChevronDown"></span></summary>
+        <div class="card-body">
+          <p id="style-note" class="hint" hidden>In fester Fotogröße nicht verfügbar – die Fotogröße muss exakt bleiben.</p>
+          <fieldset id="style-fields" class="stack plain">
+            <div class="sub">Rahmen</div>
+            <div id="frame-kind" class="seg four" role="radiogroup" aria-label="Rahmen">
+              <button type="button" data-frame="none">Keiner</button>
+              <button type="button" data-frame="white">Weiß</button>
+              <button type="button" data-frame="polaroid">Polaroid</button>
+              <button type="button" data-frame="color">Farbe</button>
+            </div>
+            <label id="frame-color-row" class="color-field" hidden><span class="label">Rahmenfarbe</span><span class="swatch"><input id="frame-color" type="color" /></span></label>
+            <label id="frame-width-row" class="slider" hidden>
+              <span class="label">Rahmenbreite <output id="frame-width-out"></output></span>
+              <input id="frame-width" type="range" min="1" max="10" step="0.5" />
+            </label>
+            <label class="slider">
+              <span class="label">Ecken <output id="radius-out"></output></span>
+              <input id="radius" type="range" min="0" max="15" step="0.5" />
+            </label>
+            <label class="switch"><input id="shadow" type="checkbox" /><span class="track" aria-hidden="true"></span>Schatten</label>
+            <div class="sub">Kanten</div>
+            <div id="edge-kind" class="seg" role="radiogroup" aria-label="Kanten">
+              <button type="button" data-edge="hard">Hart</button>
+              <button type="button" data-edge="soft">Weich</button>
+              <button type="button" data-edge="vignette">Vignette</button>
+            </div>
+            <div class="row center">
+              <label class="switch grow"><input id="scatter" type="checkbox" /><span class="track" aria-hidden="true"></span>Verstreut</label>
+              <button id="reshuffle" class="btn small" type="button" data-icon="Shuffle" data-tip="Neu mischen: neue zufällige Neigungen">Mischen</button>
+            </div>
+          </fieldset>
+        </div>
+      </details>
+
       <button id="add-photos" class="btn wide" type="button" data-icon="ImagePlus">Fotos hinzufügen …</button>
     </aside>
 
     <main id="stage">
+      <nav id="pages" aria-label="Seiten">
+        <button id="page-prev" class="icon-btn small" type="button" data-icon="ChevronLeft" aria-label="Vorige Seite" data-tip="Vorige Seite"></button>
+        <div id="page-thumbs"></div>
+        <button id="page-next" class="icon-btn small" type="button" data-icon="ChevronRight" aria-label="Nächste Seite" data-tip="Nächste Seite"></button>
+        <button id="page-add" class="icon-btn small" type="button" data-icon="Plus" aria-label="Seite hinzufügen" data-tip="Leere Seite anhängen"></button>
+        <span class="sep"></span>
+        <span id="page-label"></span>
+        <span id="page-count" class="stepper" hidden>Plätze <button id="page-count-minus" type="button" aria-label="Weniger Plätze">−</button><b id="page-count-out"></b><button id="page-count-plus" type="button" aria-label="Mehr Plätze">+</button></span>
+        <button id="page-delete" class="icon-btn small" type="button" data-icon="Trash2" aria-label="Seite löschen"></button>
+      </nav>
+
       <div id="sheet-area">
         <div id="sheet-wrap">
           <canvas id="sheet"></canvas>
@@ -130,6 +182,10 @@
           <button id="reset-crop" class="tool" type="button" data-icon="Scan" data-tip="Zurücksetzen (Doppelklick)">Reset</button>
         </div>
         <label id="guide-row" class="switch" title="Ausrichtungshilfe: Mittellinie, Bereich für Scheitel und Kinn (Kopfhöhe ca. 32–36 mm), ungefähre Augenhöhe. Keine amtliche Prüfung." hidden><input id="guide-toggle" type="checkbox" /><span class="track" aria-hidden="true"></span>Biometrie-Hilfslinien</label>
+        <label id="tilt-row" class="slider" hidden>
+          <span class="label">Neigung <output id="tilt-out"></output></span>
+          <input id="tilt" type="range" min="-15" max="15" step="0.5" />
+        </label>
         <button id="to-tray" class="btn wide ghost" type="button" data-icon="Archive" data-tip="In die Ablage (Entf)">In die Ablage</button>
         <p class="hint">Ziehen verschiebt den Ausschnitt, Pfeiltasten feinjustieren (Umschalt = 10 mm).</p>
       </aside>
@@ -140,6 +196,22 @@
       </footer>
     </main>
   </div>
+  <dialog id="print-card" aria-labelledby="pc-title">
+    <h2 id="pc-title"><span data-icon="Printer"></span>Vor dem Drucken</h2>
+    <p>Bitte im Druckdialog einstellen (<span id="pc-pages"></span>):</p>
+    <ul class="pc-list">
+      <li><span>Papiergröße</span><b id="pc-paper"></b></li>
+      <li><span>Ränder</span><b>Keine</b></li>
+      <li><span>Skalierung</span><b>100 %</b></li>
+    </ul>
+    <p class="hint">Browser erlauben Erweiterungen nicht, das Papier vorzuwählen. Zuverlässiger: als PDF speichern und aus dem PDF-Programm drucken („Papierquelle gemäß PDF-Seitengröße“).</p>
+    <label class="check"><input id="pc-dontshow" type="checkbox" /> Nicht mehr anzeigen</label>
+    <div class="pc-actions">
+      <button id="pc-cancel" class="btn ghost" type="button">Abbrechen</button>
+      <button id="pc-pdf" class="btn" type="button" data-icon="FileDown">Stattdessen als PDF</button>
+      <button id="pc-print" class="btn primary" type="button" data-icon="Printer">Drucken</button>
+    </div>
+  </dialog>
   <div id="toasts" aria-live="polite"><div id="toast" role="status"></div></div>
   <input id="file-photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
   <input id="file-collage" type="file" accept=".collagewerk,.json,application/json" hidden />

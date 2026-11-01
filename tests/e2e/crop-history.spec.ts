@@ -3,7 +3,7 @@ import { dropAndWait, getState, openEditor, slotNames, slotRects, trayNames } fr
 
 test.beforeEach(({ page }) => openEditor(page));
 
-const crop0 = async (page: Page, i = 0) => (await getState(page)).slots[i]!.crop;
+const crop0 = async (page: Page, i = 0) => (await getState(page)).pages[0].slots[i]!.crop;
 
 async function selectSlot(page: Page, i: number) {
   const r = (await slotRects(page))[i];
@@ -70,7 +70,7 @@ test('Crop travels with the Photo into a differently shaped Slot (rule 23)', asy
   await page.mouse.down();
   await page.mouse.move(r[1].cx, r[1].cy, { steps: 6 });
   await page.mouse.up();
-  const c = (await getState(page)).slots[1]!.crop;
+  const c = (await getState(page)).pages[0].slots[1]!.crop;
   expect(c).toMatchObject({ zoom: 2.5, rot: 90 });
 });
 

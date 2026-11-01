@@ -1,12 +1,14 @@
 import './style.css';
-import { addPhotos, capacity, createCollage, fitSheet, maxSlots, moveSlot, normalize, prunePhotos, referencedPhotoIds, setCrop, setLayoutMode, setPhotoSize, setSamePhoto, setSlotCount, slotToTray, trayToSlot, withDefaults } from '../model/collage';
+import { addPage, addPhotos, addPhotosToPage, capacity, createCollage, deletePage, fitSheet, isSame, maxSlots, moveSlot, moveToPage, normalize, photoCount, prunePhotos, referencedPhotoIds, setCrop, setLastPageCount, setLayoutMode, setPhotoSize, setSamePhoto, setSlotCount, setTilt, slotToTray, trayToPage, trayToSlot, withDefaults } from '../model/collage';
 import { clampCrop, defaultCrop, dpiLevel, effectiveDpi, mirror, pan, rotate, zoomAt } from '../model/crop';
 import { parseFile, toFile } from '../model/fileformat';
 import { History } from '../model/history';
-import { collageSlots, computeSlots, PHOTO_SIZES, photoSizeDims, SHEET_PRESETS, sheetSize, templatesFor } from '../model/layout';
-import type { Collage, Crop, Rect } from '../model/types';
+import { collageSlots, computeSlots, PHOTO_SIZES, photoSizeDims, SHEET_PRESETS, sheetSize, templateFor, templatesFor } from '../model/layout';
+import { hitsSlot, photoArea, styleActive, TILT_MAX, tiltFit, tiltOf } from '../model/style';
+import { buildPdf, type PdfPage } from './pdf';
+import type { Collage, Crop, Rect, Slot } from '../model/types';
 import { isSupported, PhotoStore } from './photos';
-import { drawCollage, renderToCanvas } from './render';
+import { drawPage, renderToCanvas } from './render';
 import * as db from './storage';
 import { registerEditorTab } from './tab';
 import { hydrateIcons, icon, setIcon } from './icons';
@@ -27,6 +29,9 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------- state ----------
 let state: Collage = createCollage();
 let selected: number | null = null;
+/** current Page index (UI state) */
+let page = 0;
+const curSlots = () => state.pages[page]?.slots ?? [];
 const history = new History<Collage>();
 let coalesceKey: string | null = null;
 const photos = new PhotoStore();
@@ -44,7 +49,8 @@ function commit(next: Collage, key: string | null = null) {
 const endCoalesce = () => (coalesceKey = null);
 
 function changed() {
-  if (selected !== null && selected >= state.slotCount) selected = null;
+  page = Math.max(0, Math.min(page, state.pages.length - 1));
+  if (selected !== null && selected >= curSlots().length) selected = null;
   scheduleSave();
   syncControls();
   renderTray();
@@ -67,24 +73,25 @@ function flushSave() {
 }
 
 async function restore() {
-  const saved = await db.loadState().catch(() => undefined);
-  if (!saved) return;
+  const raw = await db.loadState().catch(() => undefined);
+  if (!raw) return;
+  const saved = withDefaults(raw);
   const ids = referencedPhotoIds(saved);
   for (const id of ids) {
     const blob = await db.loadPhoto(id);
     if (blob) photos.put(id, blob);
   }
   // drop references to photos whose data is missing
-  saved.slots = saved.slots.map((s) => (s && photos.has(s.photoId) ? s : null));
+  saved.pages = saved.pages.map((pg) => ({ ...pg, slots: pg.slots.map((s) => (s && photos.has(s.photoId) ? s : null)) }));
   saved.tray = saved.tray.filter((t) => photos.has(t.photoId));
-  state = normalize(prunePhotos(withDefaults(saved)));
+  state = normalize(prunePhotos(saved));
   // remove orphaned photo blobs
   const keys = (await db.photoKeys()) ?? [];
   for (const k of keys) if (!ids.has(String(k))) db.deletePhoto(String(k));
 }
 
 // ---------- adding photos (rules 11–15) ----------
-async function addFiles(files: File[], target?: number) {
+async function addFiles(files: File[], target?: number, toPage?: number) {
   const bad = files.filter((f) => !isSupported(f)).map((f) => f.name);
   const metas = [];
   for (const f of files.filter((x) => isSupported(x))) {
@@ -98,7 +105,10 @@ async function addFiles(files: File[], target?: number) {
   }
   if (bad.length) toast(`Nicht unterstützt: ${bad.join(', ')} (erlaubt: JPG, PNG, WebP, GIF)`);
   if (!metas.length) return;
-  commit(addPhotos(state, metas, files.length === 1 ? target : undefined));
+  const before = state.pages.length;
+  if (toPage !== undefined) commit(addPhotosToPage(state, metas, toPage));
+  else commit(addPhotos(state, metas, files.length === 1 ? target : undefined, page));
+  if (state.pages.length > before) toast(`${state.pages.length - before} neue Seite${state.pages.length - before > 1 ? 'n' : ''} angelegt`, 'info');
 }
 
 // ---------- geometry ----------
@@ -122,8 +132,8 @@ function fit() {
   canvas.height = Math.round(h * view.scale * dpr);
 }
 
-function slotsMm(): Rect[] {
-  return collageSlots(state);
+function slotsMm(): Slot[] {
+  return collageSlots(state, page);
 }
 /** Slot rect in css px relative to the canvas. */
 const toPx = (r: Rect): Rect => ({ x: r.x * view.scale, y: r.y * view.scale, w: r.w * view.scale, h: r.h * view.scale });
@@ -132,17 +142,20 @@ function slotAt(clientX: number, clientY: number): number | null {
   const b = canvas.getBoundingClientRect();
   const x = (clientX - b.left) / view.scale;
   const y = (clientY - b.top) / view.scale;
-  const i = slotsMm().findIndex((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
-  return i < 0 ? null : i;
+  const slots = slotsMm();
+  // topmost first: later Slots are drawn on top
+  for (let i = slots.length - 1; i >= 0; i--) if (hitsSlot(slots[i], tiltOf(state, page, i, curSlots()[i]), x, y)) return i;
+  return null;
 }
 
 // ---------- Slot animation (rule 17) ----------
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const ANIM_MS = 180;
-let anim: { from: Rect[]; to: Rect[]; start: number } | null = null;
+let anim: { from: Slot[]; to: Slot[]; start: number } | null = null;
 let lastLayoutKey = '';
-let lastRects: Rect[] = [];
-const layoutKey = (c: Collage) => JSON.stringify([c.sheet, c.slotCount, c.templateIndex, c.gap, c.margin, c.mode, c.photoSize]);
+let animationsStarted = 0;
+let lastRects: Slot[] = [];
+const layoutKey = (c: Collage) => JSON.stringify([page, c.sheet, c.pages[page]?.slots.length, c.templateId, c.slant, c.gap, c.margin, c.mode, c.photoSize]);
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -150,15 +163,17 @@ function startAnimationIfNeeded() {
   const key = layoutKey(state);
   if (key === lastLayoutKey) return;
   const to = slotsMm();
-  if (lastLayoutKey && !reducedMotion.matches && lastRects.length) {
+  const samePage = lastLayoutKey.startsWith(`[${page},`);
+  if (lastLayoutKey && samePage && !reducedMotion.matches && lastRects.length) {
     const from = to.map((r, i) => lastRects[i] ?? { x: r.x + r.w / 2, y: r.y + r.h / 2, w: 0, h: 0 });
     anim = { from, to, start: performance.now() };
+    animationsStarted++;
   }
   lastLayoutKey = key;
 }
 
 /** Slot rectangles as currently drawn (animated); hit-testing always uses the final ones. */
-function displayRects(): Rect[] {
+function displayRects(): Slot[] {
   const to = slotsMm();
   if (!anim) return to;
   const t = Math.min(1, (performance.now() - anim.start) / ANIM_MS);
@@ -169,7 +184,11 @@ function displayRects(): Rect[] {
   const e = ease(t);
   return to.map((r, i) => {
     const f = anim!.from[i];
-    return { x: lerp(f.x, r.x, e), y: lerp(f.y, r.y, e), w: lerp(f.w, r.w, e), h: lerp(f.h, r.h, e) };
+    const poly =
+      r.poly && f.poly && f.poly.length === r.poly.length
+        ? r.poly.map((q, k) => ({ x: lerp(f.poly![k].x, q.x, e), y: lerp(f.poly![k].y, q.y, e) }))
+        : r.poly;
+    return { x: lerp(f.x, r.x, e), y: lerp(f.y, r.y, e), w: lerp(f.w, r.w, e), h: lerp(f.h, r.h, e), poly };
   });
 }
 
@@ -191,7 +210,7 @@ function render() {
   startAnimationIfNeeded();
   const rects = displayRects();
   lastRects = rects;
-  drawCollage(ctx, state, (id) => photos.bitmap(id), { scale: view.scale * dpr, placeholders: true, rects });
+  drawPage(ctx, state, page, (id) => photos.bitmap(id), { scale: view.scale * dpr, placeholders: true, rects });
   renderOverlay(rects);
   renderChrome();
   if (anim) requestRender();
@@ -209,7 +228,7 @@ function renderChrome() {
     label += ` · ${state.slotCount} × ${ps ? ps.label : 'Eigene Größe'} ${fmt(d.w)} × ${fmt(d.h)} mm`;
   }
   $('sheet-label').textContent = label;
-  const empty = state.slots.every((x) => !x) && state.tray.length === 0;
+  const empty = photoCount(state) === 0 && state.tray.length === 0;
   $('welcome').hidden = !empty;
   const badge = $('tray-count');
   badge.textContent = String(state.tray.length);
@@ -218,7 +237,7 @@ function renderChrome() {
 
 let dropTarget: number | null = null;
 let hovered: number | null = null;
-function renderOverlay(slots: Rect[] = displayRects()) {
+function renderOverlay(slots: Slot[] = displayRects()) {
   // reuse elements so hover toolbars and badges are not torn down while the pointer is on them
   while (overlay.children.length > slots.length) overlay.lastElementChild!.remove();
   slots.forEach((r, i) => {
@@ -230,17 +249,39 @@ function renderOverlay(slots: Rect[] = displayRects()) {
       el.dataset.slot = String(i);
       overlay.appendChild(el);
     }
-    Object.assign(el.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.w}px`, height: `${p.h}px` });
+    const it = curSlots()[i];
+    // follow the visible shape: Tilt as a CSS transform, polygons as an SVG outline (pages rule 24)
+    const tilt = tiltOf(state, page, i, it);
+    const f = tiltFit(p.w, p.h, tilt);
+    Object.assign(el.style, {
+      left: `${p.x}px`,
+      top: `${p.y}px`,
+      width: `${p.w}px`,
+      height: `${p.h}px`,
+      transform: tilt ? `rotate(${tilt}deg) scale(${f})` : '',
+    });
+    el.classList.toggle('poly', !!r.poly);
+    let outline = el.querySelector<SVGSVGElement>(':scope > svg.outline');
+    if (r.poly) {
+      if (!outline) {
+        outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        outline.classList.add('outline');
+        outline.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'polygon'));
+        el.prepend(outline);
+      }
+      outline.setAttribute('viewBox', `0 0 ${p.w} ${p.h}`);
+      outline.firstElementChild!.setAttribute('points', r.poly.map((q) => `${q.x * view.scale - p.x},${q.y * view.scale - p.y}`).join(' '));
+    } else outline?.remove();
     el.classList.toggle('selected', i === selected);
     el.classList.toggle('drop-target', i === dropTarget);
-    const it = state.slots[i];
     const meta = it && state.photos[it.photoId];
     el.classList.toggle('occupied', !!(it && meta));
 
     let badgeKey = '';
     let dpi = 0;
     if (it && meta) {
-      dpi = Math.round(effectiveDpi(meta, clampCrop(meta, it.crop, r), r));
+      const area = photoArea(state, r);
+      dpi = Math.round(effectiveDpi(meta, clampCrop(meta, it.crop, area), area));
       el.dataset.dpi = String(dpi);
       const lvl = dpiLevel(dpi);
       if (lvl !== 'ok') badgeKey = `${lvl}:${dpi}`;
@@ -323,7 +364,7 @@ function slotTools(i: number) {
   add('RotateCw', '90° nach rechts', () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, 1)));
   add('FlipHorizontal2', 'Spiegeln', () => updateCrop((s) => mirror(s.meta, s.crop, s.rect)));
   add('Archive', 'In die Ablage (Entf)', () => {
-    commit(slotToTray(state, i));
+    commit(slotToTray(state, page, i));
     hovered = null;
   });
   return bar;
@@ -333,7 +374,7 @@ const sheetWrap = $('sheet-wrap');
 sheetWrap.addEventListener('pointermove', (e) => {
   if (gesture) return;
   const t = slotAt(e.clientX, e.clientY);
-  const h = t !== null && state.slots[t] ? t : null;
+  const h = t !== null && curSlots()[t] ? t : null;
   if (h !== hovered) {
     hovered = h;
     requestRender();
@@ -403,12 +444,23 @@ function syncControls() {
   $('margin-out').textContent = `${state.margin} mm`;
   inp('background').value = state.background;
   renderTemplates();
-  const it = selected !== null ? state.slots[selected] : null;
+  const curTpl = templateFor(state.slotCount, state.templateId);
+  $('slant-row').hidden = fixed || curTpl.id !== 'diagonal';
+  inp('slant').value = String(state.slant);
+  $('slant-out').textContent = `${state.slant}°`;
+  syncStyle();
+  const it = selected !== null ? curSlots()[selected] : null;
   $('crop-panel').classList.toggle('open', !!it);
   if (it) {
     inp('zoom').value = String(Math.round(it.crop.zoom * 100));
     $('zoom-out').textContent = `${Math.round(it.crop.zoom * 100)} %`;
+    const scatter = styleActive(state) && state.style.scatter;
+    $('tilt-row').hidden = !scatter;
+    const t = Math.round(tiltOf(state, page, selected!, it) * 10) / 10;
+    inp('tilt').value = String(t);
+    $('tilt-out').textContent = `${t}°`;
   }
+  renderPages();
   document.querySelectorAll<HTMLInputElement>('input[type=range]').forEach(fillSlider);
   ($('undo') as HTMLButtonElement).disabled = !history.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !history.canRedo;
@@ -417,18 +469,19 @@ function syncControls() {
 function renderTemplates() {
   const box = $('templates');
   const tpls = templatesFor(state.slotCount);
-  const key = `${state.slotCount}|${state.templateIndex}|${state.sheet.orientation}|${state.sheet.w}|${state.sheet.h}|${state.gap}|${state.margin}`;
+  const key = `${state.slotCount}|${state.templateId}|${state.slant}|${state.sheet.orientation}|${state.sheet.w}|${state.sheet.h}|${state.gap}|${state.margin}`;
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   box.replaceChildren();
   const { w, h } = sheetSize(state.sheet);
   const k = 56 / Math.max(w, h);
-  tpls.forEach((t, i) => {
+  const active = templateFor(state.slotCount, state.templateId).id;
+  tpls.forEach((t) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.dataset.template = t.id;
-    b.setAttribute('aria-pressed', String(i === state.templateIndex));
-    const rects = computeSlots({ ...state, templateIndex: i });
+    b.setAttribute('aria-pressed', String(t.id === active));
+    const rects = computeSlots({ ...state, mode: 'free', templateId: t.id });
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('width', String(w * k));
@@ -440,11 +493,20 @@ function renderTemplates() {
       svg.appendChild(e);
     };
     rect(0, 0, w, h, { fill: 'none', stroke: 'currentColor', 'stroke-width': String(2 / k) });
-    for (const r of rects) rect(r.x, r.y, r.w, r.h, { fill: 'currentColor', opacity: '.28', rx: String(1.5 / k) });
+    for (const r of rects) {
+      if (r.poly) {
+        const e = document.createElementNS(NS, 'polygon');
+        e.setAttribute('points', r.poly.map((q) => `${q.x},${q.y}`).join(' '));
+        e.setAttribute('fill', 'currentColor');
+        e.setAttribute('opacity', '.28');
+        svg.appendChild(e);
+      } else rect(r.x, r.y, r.w, r.h, { fill: 'currentColor', opacity: '.28', rx: String(1.5 / k) });
+    }
     const label = document.createElement('span');
     label.textContent = t.label;
     b.append(svg, label);
-    b.onclick = () => commit({ ...state, templateIndex: i });
+    b.title = t.label;
+    b.onclick = () => commit({ ...state, templateId: t.id });
     box.appendChild(b);
   });
 }
@@ -517,28 +579,31 @@ inp('guide-toggle').onchange = () => {
 // ---------- crop (rules 19–23) ----------
 function selectedCtx(): { i: number; meta: Collage['photos'][string]; crop: Crop; rect: Rect } | null {
   if (selected === null) return null;
-  const it = state.slots[selected];
+  const it = curSlots()[selected];
   const meta = it && state.photos[it.photoId];
   if (!it || !meta) return null;
-  const rect = slotsMm()[selected];
+  const slot = slotsMm()[selected];
+  if (!slot) return null;
+  const rect = photoArea(state, slot);
   return { i: selected, meta, crop: clampCrop(meta, it.crop, rect), rect };
 }
 function updateCrop(fn: (c: NonNullable<ReturnType<typeof selectedCtx>>) => Crop, key: string | null = null) {
   const s = selectedCtx();
   if (!s) return;
-  commit(setCrop(state, s.i, fn(s)), key);
+  commit(setCrop(state, page, s.i, fn(s)), key);
 }
 slider('zoom', (v) => {
   const s = selectedCtx();
-  return s ? setCrop(state, s.i, zoomAt(s.meta, s.crop, s.rect, v / 100)) : state;
+  return s ? setCrop(state, page, s.i, zoomAt(s.meta, s.crop, s.rect, v / 100)) : state;
 });
 $('rot-left').onclick = () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, -1));
 $('rot-right').onclick = () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, 1));
 $('mirror').onclick = () => updateCrop((s) => mirror(s.meta, s.crop, s.rect));
 $('reset-crop').onclick = () => updateCrop(() => defaultCrop());
 $('to-tray').onclick = () => {
-  if (selected !== null) commit(slotToTray(state, selected));
+  if (selected !== null) commit(slotToTray(state, page, selected));
 };
+slider('tilt', (v) => (selected !== null ? setTilt(state, page, selected, Math.max(-TILT_MAX, Math.min(TILT_MAX, v))) : state));
 
 function select(i: number | null) {
   selected = i;
@@ -554,7 +619,7 @@ let gesture: Gesture | null = null;
 let emptyPress: number | null = null;
 canvas.addEventListener('click', (e) => {
   const i = slotAt(e.clientX, e.clientY);
-  if (i !== null && i === emptyPress && !state.slots[i]) pickPhotos(i);
+  if (i !== null && i === emptyPress && !curSlots()[i]) pickPhotos(i);
   emptyPress = null;
 });
 canvas.addEventListener('pointerdown', (e) => {
@@ -565,7 +630,7 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   const wasSelected = selected === i;
-  if (!state.slots[i]) {
+  if (!curSlots()[i]) {
     // empty Slot: pick a file for exactly this Slot (UI v2 rule 14)
     select(null);
     emptyPress = i;
@@ -589,7 +654,7 @@ canvas.addEventListener('pointermove', (e) => {
   } else {
     if (!gesture.moved) {
       gesture.moved = true;
-      const it = state.slots[gesture.slot]!;
+      const it = curSlots()[gesture.slot]!;
       const g = document.createElement('img');
       g.className = 'drag-ghost';
       g.src = photos.url(it.photoId);
@@ -605,8 +670,18 @@ canvas.addEventListener('pointermove', (e) => {
       requestRender();
     }
     $('tray').classList.toggle('drop-target', overTray(e.clientX, e.clientY));
+    markThumb(thumbAt(e.clientX, e.clientY));
   }
 });
+
+/** Page thumbnail under a point (pages rule 8). */
+function thumbAt(x: number, y: number): number | null {
+  const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-page]');
+  return el ? Number(el.dataset.page) : null;
+}
+function markThumb(p: number | null) {
+  document.querySelectorAll<HTMLElement>('#pages [data-page]').forEach((t) => t.classList.toggle('drop-target', Number(t.dataset.page) === p));
+}
 
 function overTray(x: number, y: number) {
   const r = $('tray').getBoundingClientRect();
@@ -619,16 +694,21 @@ function endGesture(e: PointerEvent, cancelled = false) {
   if (!g) return;
   g.ghost?.remove();
   $('tray').classList.remove('drop-target');
+  markThumb(null);
   dropTarget = null;
   endCoalesce();
   if (g.kind === 'move' && g.moved && !cancelled) {
+    const tp = thumbAt(e.clientX, e.clientY);
     if (overTray(e.clientX, e.clientY)) {
-      commit(slotToTray(state, g.slot));
+      commit(slotToTray(state, page, g.slot));
+      select(null);
+    } else if (tp !== null && tp !== page) {
+      commit(moveToPage(state, page, g.slot, tp));
       select(null);
     } else {
       const t = slotAt(e.clientX, e.clientY);
       if (t !== null && t !== g.slot) {
-        commit(moveSlot(state, g.slot, t));
+        commit(moveSlot(state, page, g.slot, t));
         select(t);
       }
     }
@@ -640,7 +720,7 @@ canvas.addEventListener('pointercancel', (e) => endGesture(e, true));
 
 canvas.addEventListener('dblclick', (e) => {
   const i = slotAt(e.clientX, e.clientY);
-  if (i === null || !state.slots[i]) return;
+  if (i === null || !curSlots()[i]) return;
   select(i);
   updateCrop(() => defaultCrop());
 });
@@ -650,7 +730,7 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     const i = slotAt(e.clientX, e.clientY);
-    if (i === null || !state.slots[i]) return;
+    if (i === null || !curSlots()[i]) return;
     e.preventDefault();
     if (selected !== i) select(i);
     const s = selectedCtx()!;
@@ -668,7 +748,7 @@ canvas.addEventListener(
 // keyboard (rules 21, 22, 26)
 window.addEventListener('keydown', (e) => {
   const tag = (e.target as HTMLElement).tagName;
-  const typing = tag === 'INPUT' && !['range', 'button', 'color'].includes((e.target as HTMLInputElement).type);
+  const typing = tag === 'INPUT' && !['range', 'button', 'color', 'checkbox', 'radio'].includes((e.target as HTMLInputElement).type);
   if ((e.ctrlKey || e.metaKey) && !typing) {
     const k = e.key.toLowerCase();
     if (k === 'z' && !e.shiftKey) return e.preventDefault(), undo();
@@ -681,7 +761,7 @@ window.addEventListener('keydown', (e) => {
   if (!s) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
-    commit(slotToTray(state, s.i));
+    commit(slotToTray(state, page, s.i));
     return;
   }
   const step = e.shiftKey ? 10 : 1;
@@ -727,6 +807,7 @@ window.addEventListener('dragover', (e) => {
   e.preventDefault();
   e.dataTransfer!.dropEffect = hasTray(e) ? 'move' : 'copy';
   welcome.classList.toggle('drop-target', overWelcome(e));
+  markThumb(thumbAt(e.clientX, e.clientY));
   const t = dropSlot(e);
   if (t !== dropTarget) {
     dropTarget = t;
@@ -744,18 +825,24 @@ window.addEventListener('drop', (e) => {
   if (!hasFiles(e) && !hasTray(e)) return;
   e.preventDefault();
   const t = dropSlot(e);
+  const tp = thumbAt(e.clientX, e.clientY);
+  markThumb(null);
   welcome.classList.remove('drop-target');
   dropTarget = null;
   if (hasTray(e)) {
     const idx = Number(e.dataTransfer!.getData(TRAY_MIME));
-    if (t !== null) {
-      commit(trayToSlot(state, idx, t));
+    if (tp !== null) {
+      commit(trayToPage(state, idx, tp));
+      requestRender();
+    } else if (t !== null) {
+      commit(trayToSlot(state, idx, page, t));
       select(t);
     } else requestRender();
     return;
   }
   const files = [...e.dataTransfer!.files];
-  addFiles(files, t ?? undefined);
+  if (tp !== null) addFiles(files, undefined, tp);
+  else addFiles(files, t ?? undefined);
 });
 
 function renderTray() {
@@ -845,41 +932,205 @@ async function openCollageText(text: string) {
   commit(f.collage);
 }
 
-// ---------- output (rules 29, 30) ----------
-async function renderOutput(dpi: number) {
+// ---------- output (v1 rules 29, 30; pages rules 11–15) ----------
+async function renderOutput(dpi: number, p = page) {
   await photos.ensureAll(referencedPhotoIds(state));
-  return renderToCanvas(state, (id) => photos.bitmap(id), dpi);
+  return renderToCanvas(state, p, (id) => photos.bitmap(id), dpi);
 }
-const toBlob = (cv: HTMLCanvasElement) => new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Export fehlgeschlagen'))), 'image/png'));
+const toBlob = (cv: HTMLCanvasElement, type = 'image/png', q?: number) =>
+  new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Export fehlgeschlagen'))), type, q));
+const pageIndices = () => state.pages.map((_, i) => i);
 
 $('export-png').onclick = async () => {
-  const blob = await toBlob(await renderOutput(300));
-  download(blob, `collage-${stamp()}.png`);
+  const st = stamp();
+  const multi = state.pages.length > 1;
+  for (const p of pageIndices()) {
+    const blob = await toBlob(await renderOutput(300, p));
+    download(blob, multi ? `collage-${st}-${p + 1}.png` : `collage-${st}.png`);
+  }
 };
+
+/** One PDF, one page per Page, media box = Sheet size (pages rule 13). */
+async function buildCollagePdf(): Promise<Blob> {
+  const { w, h } = sheetSize(state.sheet);
+  const pages: PdfPage[] = [];
+  for (const p of pageIndices()) {
+    const cv = await renderOutput(300, p);
+    const jpeg = new Uint8Array(await (await toBlob(cv, 'image/jpeg', 0.92)).arrayBuffer());
+    pages.push({ wMm: w, hMm: h, jpeg, pxW: cv.width, pxH: cv.height });
+    cv.width = cv.height = 0; // free memory before the next Page
+  }
+  return buildPdf(pages);
+}
+async function exportPdf() {
+  download(await buildCollagePdf(), `collage-${stamp()}.pdf`);
+}
+$('export-pdf').onclick = () => void exportPdf();
 
 async function preparePrint() {
   const { w, h } = sheetSize(state.sheet);
-  const blob = await toBlob(await renderOutput(300));
   const root = $('print-root');
   root.replaceChildren();
-  const img = new Image();
-  img.src = URL.createObjectURL(blob);
-  img.style.width = `${w}mm`;
-  img.style.height = `${h}mm`;
-  await img.decode();
-  root.appendChild(img);
+  for (const p of pageIndices()) {
+    const blob = await toBlob(await renderOutput(300, p));
+    const img = new Image();
+    img.src = URL.createObjectURL(blob);
+    img.style.width = `${w}mm`;
+    img.style.height = `${h}mm`;
+    await img.decode();
+    root.appendChild(img);
+  }
   let st = document.getElementById('page-style');
   if (!st) {
     st = document.createElement('style');
     st.id = 'page-style';
     document.head.appendChild(st);
   }
-  st.textContent = `@page { size: ${w}mm ${h}mm; margin: 0; } @media print { html, body { width: ${w}mm; height: ${h}mm; overflow: hidden; } }`;
+  st.textContent = `@page { size: ${w}mm ${h}mm; margin: 0; } @media print { html, body { width: ${w}mm; margin: 0; } #print-root img { break-after: page; } #print-root img:last-child { break-after: auto; } }`;
 }
-$('print').onclick = async () => {
+async function doPrint() {
   await preparePrint();
   window.print();
+}
+
+/** Hint card before the print dialog (pages rule 14). */
+const printCard = $<HTMLDialogElement>('print-card');
+function sheetLabel() {
+  const { w, h } = sheetSize(state.sheet);
+  const preset = SHEET_PRESETS.find((p) => p.id === state.sheet.preset);
+  const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('de-DE');
+  return `${preset ? preset.label + ' – ' : ''}${fmt(w)} × ${fmt(h)} mm`;
+}
+$('print').onclick = () => {
+  if (prefs.get('printCard') === 'off') return void doPrint();
+  $('pc-paper').textContent = sheetLabel();
+  $('pc-pages').textContent = state.pages.length > 1 ? `${state.pages.length} Seiten` : '1 Seite';
+  inp('pc-dontshow').checked = false;
+  printCard.showModal();
 };
+function closeCard() {
+  if (inp('pc-dontshow').checked) prefs.set('printCard', 'off');
+  printCard.close();
+}
+$('pc-print').onclick = () => {
+  closeCard();
+  void doPrint();
+};
+$('pc-pdf').onclick = () => {
+  closeCard();
+  void exportPdf();
+};
+$('pc-cancel').onclick = () => closeCard();
+
+// ---------- Page strip (pages rules 1–8) ----------
+function goPage(p: number) {
+  page = Math.max(0, Math.min(p, state.pages.length - 1));
+  selected = null;
+  hovered = null;
+  syncControls();
+  renderNow();
+}
+let thumbsKey = '';
+function renderPages() {
+  const strip = $('pages');
+  const box = $('page-thumbs');
+  const n = state.pages.length;
+  strip.hidden = isSame(state) || state.slotCount === 0;
+  $('page-label').textContent = `Seite ${page + 1} / ${n}`;
+  ($('page-delete') as HTMLButtonElement).title = n > 1 ? `Seite ${page + 1} löschen (Fotos in die Ablage)` : 'Seite leeren (Fotos in die Ablage)';
+  const lastMulti = n > 1 && page === n - 1;
+  $('page-count').hidden = !lastMulti;
+  if (lastMulti) $('page-count-out').textContent = String(state.pages[page].slots.length);
+  const key = JSON.stringify([n, page, state.sheet]);
+  if (thumbsKey !== key || box.children.length !== n) {
+    thumbsKey = key;
+    box.replaceChildren(
+      ...state.pages.map((_, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'page-thumb';
+        b.dataset.page = String(i);
+        b.title = `Seite ${i + 1}`;
+        b.setAttribute('aria-current', String(i === page));
+        const cv = document.createElement('canvas');
+        // size the thumbnail right away so the strip does not shift when it is drawn later
+        const { w, h } = sheetSize(state.sheet);
+        const k = 44 / Math.max(w, h);
+        cv.style.width = `${w * k}px`;
+        cv.style.height = `${h * k}px`;
+        const num = document.createElement('span');
+        num.textContent = String(i + 1);
+        b.append(cv, num);
+        b.onclick = () => goPage(i);
+        return b;
+      }),
+    );
+  }
+  scheduleThumbs();
+}
+let thumbTimer = 0;
+function scheduleThumbs() {
+  clearTimeout(thumbTimer);
+  thumbTimer = window.setTimeout(drawThumbs, 60);
+}
+function drawThumbs() {
+  const { w, h } = sheetSize(state.sheet);
+  const dpr = window.devicePixelRatio || 1;
+  const k = 44 / Math.max(w, h);
+  document.querySelectorAll<HTMLElement>('#page-thumbs [data-page]').forEach((b) => {
+    const p = Number(b.dataset.page);
+    if (!state.pages[p]) return;
+    const cv = b.querySelector('canvas')!;
+    cv.style.width = `${w * k}px`;
+    cv.style.height = `${h * k}px`;
+    cv.width = Math.round(w * k * dpr);
+    cv.height = Math.round(h * k * dpr);
+    drawPage(cv.getContext('2d')!, state, p, (id) => photos.bitmap(id), { scale: k * dpr });
+  });
+}
+$('page-add').onclick = () => {
+  commit(addPage(state));
+  goPage(state.pages.length - 1);
+};
+$('page-delete').onclick = () => {
+  commit(deletePage(state, page));
+  goPage(Math.min(page, state.pages.length - 1));
+};
+$('page-prev').onclick = () => goPage(page - 1);
+$('page-next').onclick = () => goPage(page + 1);
+$('page-count-minus').onclick = () => commit(setLastPageCount(state, state.pages[page].slots.length - 1));
+$('page-count-plus').onclick = () => commit(setLastPageCount(state, state.pages[page].slots.length + 1));
+
+// ---------- Style (pages rules 18–23) ----------
+function syncStyle() {
+  const st = state.style;
+  const active = styleActive(state);
+  ($('style-fields') as HTMLFieldSetElement).disabled = !active;
+  $('style-note').hidden = active;
+  document.querySelectorAll<HTMLElement>('#frame-kind [data-frame]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.frame === st.frame)));
+  $('frame-color-row').hidden = st.frame !== 'color';
+  inp('frame-color').value = st.frameColor;
+  $('frame-width-row').hidden = st.frame === 'none';
+  inp('frame-width').value = String(st.frameWidth);
+  $('frame-width-out').textContent = `${st.frameWidth} mm`;
+  inp('radius').value = String(st.radius);
+  $('radius-out').textContent = `${st.radius} mm`;
+  inp('shadow').checked = st.shadow;
+  document.querySelectorAll<HTMLElement>('#edge-kind [data-edge]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.edge === st.edges)));
+  inp('scatter').checked = st.scatter;
+  ($('reshuffle') as HTMLButtonElement).disabled = !st.scatter;
+}
+const setStyle = (patch: Partial<Collage['style']>, key: string | null = null) => commit({ ...state, style: { ...state.style, ...patch } }, key);
+document.querySelectorAll<HTMLElement>('#frame-kind [data-frame]').forEach((b) => (b.onclick = () => setStyle({ frame: b.dataset.frame as Collage['style']['frame'] })));
+document.querySelectorAll<HTMLElement>('#edge-kind [data-edge]').forEach((b) => (b.onclick = () => setStyle({ edges: b.dataset.edge as Collage['style']['edges'] })));
+inp('frame-color').addEventListener('input', () => setStyle({ frameColor: inp('frame-color').value }, 'frame-color'));
+inp('frame-color').addEventListener('change', endCoalesce);
+slider('frame-width', (v) => ({ ...state, style: { ...state.style, frameWidth: v } }));
+slider('radius', (v) => ({ ...state, style: { ...state.style, radius: v } }));
+slider('slant', (v) => ({ ...state, slant: v }));
+inp('shadow').onchange = () => setStyle({ shadow: inp('shadow').checked });
+inp('scatter').onchange = () => setStyle({ scatter: inp('scatter').checked });
+$('reshuffle').onclick = () => setStyle({ seed: (state.style.seed * 7919 + 104729) % 2147483647 || 1 });
 
 // ---------- toast ----------
 let toastTimer = 0;
@@ -945,6 +1196,14 @@ window.addEventListener('pagehide', () => void flushSave());
   },
   get selected() {
     return selected;
+  },
+  get page() {
+    return page;
+  },
+  goPage,
+  buildPdf: buildCollagePdf,
+  get animationsStarted() {
+    return animationsStarted;
   },
   get animating() {
     return anim !== null;

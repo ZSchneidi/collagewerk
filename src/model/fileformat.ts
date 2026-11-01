@@ -2,7 +2,7 @@ import type { Collage } from './types';
 import { prunePhotos, withDefaults } from './collage';
 
 export const FILE_FORMAT = 'collagewerk';
-export const FILE_VERSION = 1;
+export const FILE_VERSION = 2;
 
 export interface CollageFile {
   format: typeof FILE_FORMAT;
@@ -31,7 +31,7 @@ export function parseFile(text: string): CollageFile {
     throw new Error('Keine gültige CollageWerk-Datei.');
   }
   if (f.version > FILE_VERSION) throw new Error('Diese Datei stammt aus einer neueren CollageWerk-Version.');
-  for (const id of Object.keys(f.collage.photos)) {
+  for (const id of Object.keys(f.collage.photos ?? {})) {
     if (typeof f.images[id] !== 'string') throw new Error('Die Datei ist unvollständig (Foto fehlt).');
   }
   return { ...f, collage: withDefaults(f.collage) };

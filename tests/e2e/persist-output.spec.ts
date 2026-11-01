@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { dropAndWait, getState, openEditor, slotNames, slotRects, trayNames } from './helpers';
+import { dropAndWait, getState, openEditor, pageNames, slotNames, slotRects, trayNames } from './helpers';
 
 test.beforeEach(({ page }) => openEditor(page));
 
@@ -31,7 +31,7 @@ test('Autosave restores the Collage after reload (rule 27)', async ({ page }) =>
   await page.reload();
   await page.evaluate(() => (window as any).__cw.ready);
   expect(await getState(page)).toEqual(before);
-  await expect(page.locator('.tray-item')).toHaveCount(1);
+  await expect(page.locator('#page-thumbs .page-thumb')).toHaveCount(2);
   // the Photo pixels are back too (red quadrant of the generated image)
   await expect.poll(async () => isRed(await centrePixel(page, 0))).toBe(true);
 });
@@ -51,8 +51,8 @@ test('Save and open a collage file (rule 28)', async ({ page, browser }) => {
   await (await chooser).setFiles(file);
   await expect.poll(async () => (await getState(fresh)).slotCount).toBe(3);
   expect(await getState(fresh)).toEqual(before);
-  expect(await slotNames(fresh)).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
-  expect(await trayNames(fresh)).toEqual(['d.jpg']);
+  expect(await pageNames(fresh)).toEqual([['a.jpg', 'b.jpg', 'c.jpg'], ['d.jpg']]);
+  expect(await trayNames(fresh)).toEqual([]);
   await expect.poll(async () => isRed(await centrePixel(fresh, 0))).toBe(true);
 
   // garbage file → message, nothing changes
@@ -68,10 +68,15 @@ test('Print prepares a 1:1 page with zero margins and the hint (rule 29)', async
   await expect(page.locator('#print-hint')).toContainText('Skalierung: 100 %');
   await page.evaluate(() => ((window as any).print = () => ((window as any).__printed = true)));
   await page.click('#print');
+  await expect(page.locator('#print-card')).toBeVisible();
+  await expect(page.locator('#pc-paper')).toHaveText('13 × 18 cm – 130 × 180 mm');
+  await page.click('#pc-print');
   await expect.poll(() => page.evaluate(() => (window as any).__printed)).toBe(true);
   const style = await page.locator('#page-style').textContent();
   expect(style).toContain('@page { size: 130mm 180mm; margin: 0; }');
-  const img = page.locator('#print-root img');
+  await expect(page.locator('#print-root img')).toHaveCount(2); // one per Page (pages rule 11)
+  expect(style).toContain('break-after: page');
+  const img = page.locator('#print-root img').first();
   await expect(img).toHaveCSS('width', /px$/);
   const st = await img.evaluate((e: HTMLImageElement) => ({ w: e.style.width, h: e.style.height, nw: e.naturalWidth, nh: e.naturalHeight }));
   expect(st).toEqual({ w: '130mm', h: '180mm', nw: 1535, nh: 2126 });

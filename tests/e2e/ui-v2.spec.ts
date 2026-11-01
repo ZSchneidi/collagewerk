@@ -25,7 +25,7 @@ test('Theme: system default, toggle overrides and is remembered (rules 1, 2)', a
 
 test('Top bar order and icons with shortcut tooltips (rules 4, 9)', async ({ page }) => {
   const ids = await page.locator('#topbar button').evaluateAll((bs) => bs.map((b) => b.id));
-  expect(ids).toEqual(['undo', 'redo', 'open-file', 'save-file', 'theme', 'export-png', 'print', 'print-info']);
+  expect(ids).toEqual(['undo', 'redo', 'open-file', 'save-file', 'theme', 'export-png', 'export-pdf', 'print', 'print-info']);
   for (const id of ids) await expect(page.locator(`#${id} svg.ico`)).toHaveCount(1);
   await expect(page.locator('#undo')).toHaveAttribute('title', 'Rückgängig (Strg+Z)');
   await page.hover('#print-info');
@@ -35,6 +35,8 @@ test('Top bar order and icons with shortcut tooltips (rules 4, 9)', async ({ pag
 test('Cards collapse and remember it; preset chips and orientation segments (rules 5, 11)', async ({ page }) => {
   await page.click('#card-layout summary');
   await expect(page.locator('#count')).toBeHidden();
+  // the 'toggle' event (which stores the state) fires asynchronously – wait for it before reloading
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cw.card.card-layout'))).toBe('closed');
   await page.reload();
   await page.evaluate(() => (window as any).__cw.ready);
   await expect(page.locator('#count')).toBeHidden();
@@ -86,21 +88,21 @@ test('Clicking an empty Slot opens the picker for that Slot (rule 14)', async ({
 });
 
 test('Slot toolbar on hover; Crop panel slides in/out; tray badge (rules 6, 7, 15, 16)', async ({ page }) => {
-  await dropAndWait(page, ['a', 'b', 'c', 'd', 'e'].map((n) => ({ name: `${n}.jpg` })), { slot: 0 });
-  await expect(page.locator('#tray-count')).toHaveText('1');
+  await dropAndWait(page, ['a', 'b', 'c', 'd'].map((n) => ({ name: `${n}.jpg` })), { slot: 0 });
+  await expect(page.locator('#tray-count')).toHaveText('0');
   const r = (await slotRects(page))[1];
   await page.mouse.move(r.cx, r.cy);
   const tools = page.locator('[data-slot="1"] .slot-tools button');
   await expect(tools).toHaveCount(4);
   await tools.nth(1).click(); // rotate right
-  expect((await getState(page)).slots[1]!.crop.rot).toBe(90);
+  expect((await getState(page)).pages[0].slots[1]!.crop.rot).toBe(90);
   expect(await page.evaluate(() => (window as any).__cw.selected)).toBe(1);
   await expect(page.locator('#crop-panel')).toBeVisible();
   await expect(page.locator('[data-slot="1"]')).toHaveClass(/selected/);
   await page.mouse.move(r.cx, r.cy + 1);
   await page.locator('[data-slot="1"] .slot-tools button').nth(3).click(); // to tray
-  expect(await trayNames(page)).toEqual(['e.jpg', 'b.jpg']);
-  await expect(page.locator('#tray-count')).toHaveText('2');
+  expect(await trayNames(page)).toEqual(['b.jpg']);
+  await expect(page.locator('#tray-count')).toHaveText('1');
   await page.keyboard.press('Escape');
   await expect(page.locator('#crop-panel')).toBeHidden();
 });
@@ -109,14 +111,18 @@ test('Slots animate on layout change, not with reduced motion (rules 17, 20)', a
   const firstLeft = () => page.locator('[data-slot="0"]').evaluate((e) => parseFloat((e as HTMLElement).style.width));
   const final = async () => (await slotRects(page))[0].w;
   const animating = () => page.evaluate(() => (window as any).__cw.animating);
+  const started = () => page.evaluate(() => (window as any).__cw.animationsStarted);
+  const n0 = await started();
   await page.locator('#count').fill('2');
-  expect(await animating()).toBe(true);
+  expect(await started()).toBe(n0 + 1);
   await expect.poll(async () => Math.abs((await firstLeft()) - (await final()))).toBeLessThan(0.5);
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.reload();
   await page.evaluate(() => (window as any).__cw.ready);
+  const n1 = await started();
   await page.locator('#count').fill('3');
+  expect(await started()).toBe(n1);
   expect(await animating()).toBe(false);
   expect(Math.abs((await firstLeft()) - (await final()))).toBeLessThan(0.5);
 });

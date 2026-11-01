@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dropAndWait, getState, openEditor, slotNames, slotRects, trayNames } from './helpers';
+import { dropAndWait, getState, openEditor, pageNames, slotNames, slotRects, trayNames } from './helpers';
 
 test.beforeEach(({ page }) => openEditor(page));
 
@@ -31,13 +31,13 @@ test('Fixed Photo size: exact Slots, capacity, Templates hidden (rules 1–4, 17
   expect((await getState(page)).mode).toBe('free');
 });
 
-test('Capacity shrink sends Photos to tray; nothing fits shows the hint and "Bogen anpassen" (rules 5, 9)', async ({ page }) => {
+test('Capacity shrink moves Photos onto further Pages; nothing fits shows the hint and "Bogen anpassen" (rules 5, 9)', async ({ page }) => {
   await passbildOn10x15(page);
   await page.locator('#same-photo').uncheck({ force: true });
   await dropAndWait(page, ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => ({ name: `${n}.jpg` })), { x: 600, y: 900 });
   await page.locator('#margin').fill('20');
-  expect(await slotNames(page)).toEqual(['a.jpg', 'b.jpg']);
-  expect(await trayNames(page)).toEqual(['c.jpg', 'd.jpg', 'e.jpg', 'f.jpg']);
+  expect(await pageNames(page)).toEqual([['a.jpg', 'b.jpg'], ['c.jpg', 'd.jpg'], ['e.jpg', 'f.jpg']]);
+  expect(await trayNames(page)).toEqual([]);
 
   await page.click('#photo-size [data-size="13x18"]');
   await expect(page.locator('#fit-hint')).toBeVisible();
@@ -61,7 +61,7 @@ test('Same photo mode: one drop fills all, Crop applies to all, to tray empties 
   await page.locator('#zoom').fill('150');
   await page.click('#rot-right');
   const s = await getState(page);
-  expect(s.slots.every((x) => x!.crop.zoom === 1.5 && x!.crop.rot === 90)).toBe(true);
+  expect(s.pages[0].slots.every((x) => x!.crop.zoom === 1.5 && x!.crop.rot === 90)).toBe(true);
   await page.keyboard.press('Delete');
   expect(await slotNames(page)).toEqual(Array(6).fill(null));
   expect(await trayNames(page)).toEqual(['extra.jpg', 'me.jpg']);
