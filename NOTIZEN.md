@@ -15,3 +15,10 @@
 - Klick auf leeren Slot öffnet den Dateidialog im `click`-Event (im `pointerdown` blockiert Chrome den Dialog).
 - Welcome card liegt über der Bogenmitte; Drops darauf füllen der Reihe nach (Spec-Regel 22), auch wenn darunter ein Slot liegt.
 - `npm run build && node scripts/preview.mjs` erzeugt eine eigenständige HTML-Vorschau (Font inline).
+
+## 2026-11-01 – Feste Fotogrößen / Passbilder (Spec `docs/specs/collagewerk-photo-sizes.md`)
+- `normalize()` in `collage.ts` läuft nach jedem Commit: begrenzt die Slot-Anzahl auf das, was passt, und gleicht im Same photo mode alle Slots an.
+- Schnittmarken werden *unter* die Fotos gezeichnet – so verdeckt ein Nachbarfoto automatisch Marken, die hineinragen würden.
+- Biometrie-Hilfslinien: Scheitel 3–7 mm, Augen 18–23 mm, Kinn 36–40 mm von oben (nur Editor). Slot-Toolbar wird auf einem Slot mit Hilfslinien ausgeblendet.
+- Hinweis im Passbild-Tooltip: Personalausweis/Reisepass seit Mai 2025 nur digital.
+- Testhärtung: `__cw.animating` statt Pixel-Timing; Dateidialog-Test mit Wiederholung (headless Chromium verliert unter Last gelegentlich den Dialog).

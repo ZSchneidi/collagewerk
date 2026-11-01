@@ -47,12 +47,36 @@
       <details class="card" id="card-layout" open>
         <summary><span data-icon="LayoutGrid"></span>Layout<span class="chev" data-icon="ChevronDown"></span></summary>
         <div class="card-body">
+          <div class="seg" role="radiogroup" aria-label="Aufteilung">
+            <button id="mode-free" type="button" data-tip="Vorlagen füllen den Bogen">Frei</button>
+            <button id="mode-fixed" type="button" data-tip="Alle Plätze in einer festen Fotogröße, z. B. Passbild">Feste Fotogröße</button>
+          </div>
+          <div id="fixed-opts" class="stack" hidden>
+            <div class="sub">Fotogröße</div>
+            <div id="photo-size" class="chips" role="radiogroup" aria-label="Fotogröße"></div>
+            <div id="ps-custom" class="row" hidden>
+              <label class="field">Breite<span class="unit-input"><input id="ps-w" type="number" min="10" max="500" step="0.5" /><em>mm</em></span></label>
+              <label class="field">Höhe<span class="unit-input"><input id="ps-h" type="number" min="10" max="500" step="0.5" /><em>mm</em></span></label>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="Ausrichtung der Fotos">
+              <button id="ps-portrait" type="button" data-icon="RectangleVertical">Hoch</button>
+              <button id="ps-landscape" type="button" data-icon="RectangleHorizontal">Quer</button>
+            </div>
+            <label class="switch"><input id="same-photo" type="checkbox" /><span class="track" aria-hidden="true"></span>Alle Plätze mit demselben Foto</label>
+            <label class="switch"><input id="cut-marks" type="checkbox" /><span class="track" aria-hidden="true"></span>Schnittmarken</label>
+            <div id="fit-hint" class="alert" hidden>
+              <span data-icon="TriangleAlert"></span><span>Passt nicht auf den Bogen</span>
+              <button id="fit-sheet" class="btn small" type="button">Bogen anpassen</button>
+            </div>
+          </div>
           <label class="slider">
             <span class="label">Anzahl Fotos <output id="count-out"></output></span>
             <input id="count" type="range" min="1" max="12" step="1" />
           </label>
-          <div class="sub">Vorlage</div>
-          <div id="templates" class="templates"></div>
+          <div id="free-opts" class="stack">
+            <div class="sub">Vorlage</div>
+            <div id="templates" class="templates"></div>
+          </div>
           <label class="slider">
             <span class="label">Abstand <output id="gap-out"></output></span>
             <input id="gap" type="range" min="0" max="20" step="0.5" />
@@ -105,6 +129,7 @@
           <button id="mirror" class="tool" type="button" data-icon="FlipHorizontal2" data-tip="Spiegeln">Spiegeln</button>
           <button id="reset-crop" class="tool" type="button" data-icon="Scan" data-tip="Zurücksetzen (Doppelklick)">Reset</button>
         </div>
+        <label id="guide-row" class="switch" title="Ausrichtungshilfe: Mittellinie, Bereich für Scheitel und Kinn (Kopfhöhe ca. 32–36 mm), ungefähre Augenhöhe. Keine amtliche Prüfung." hidden><input id="guide-toggle" type="checkbox" /><span class="track" aria-hidden="true"></span>Biometrie-Hilfslinien</label>
         <button id="to-tray" class="btn wide ghost" type="button" data-icon="Archive" data-tip="In die Ablage (Entf)">In die Ablage</button>
         <p class="hint">Ziehen verschiebt den Ausschnitt, Pfeiltasten feinjustieren (Umschalt = 10 mm).</p>
       </aside>

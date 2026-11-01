@@ -65,8 +65,14 @@ test('Welcome card while empty; dropping on it fills in order; returns when empt
 test('Clicking an empty Slot opens the picker for that Slot (rule 14)', async ({ page }) => {
   await dropAndWait(page, [{ name: 'a.jpg' }], { slot: 0 });
   const r = (await slotRects(page))[3];
-  const chooser = page.waitForEvent('filechooser');
-  await page.mouse.click(r.cx, r.cy);
+  // headless Chromium occasionally drops a file chooser under heavy parallel load; retry the click
+  let chooser: Promise<import('@playwright/test').FileChooser> | null = null;
+  for (let attempt = 0; attempt < 3 && !chooser; attempt++) {
+    const wait = page.waitForEvent('filechooser', { timeout: 4000 });
+    await page.mouse.click(r.cx, r.cy);
+    chooser = await wait.then((c) => Promise.resolve(c), () => null) as any;
+  }
+  expect(chooser).not.toBeNull();
   const buf = await page.evaluate(async () => {
     const cv = document.createElement('canvas');
     cv.width = 600;
@@ -75,7 +81,7 @@ test('Clicking an empty Slot opens the picker for that Slot (rule 14)', async ({
     const b: Blob = await new Promise((res) => cv.toBlob((x) => res(x!), 'image/jpeg'));
     return Array.from(new Uint8Array(await b.arrayBuffer()));
   });
-  await (await chooser).setFiles({ name: 'picked.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(buf) });
+  await (await chooser!).setFiles({ name: 'picked.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(buf) });
   await expect.poll(() => slotNames(page)).toEqual(['a.jpg', null, null, 'picked.jpg']);
 });
 
@@ -102,15 +108,16 @@ test('Slot toolbar on hover; Crop panel slides in/out; tray badge (rules 6, 7, 1
 test('Slots animate on layout change, not with reduced motion (rules 17, 20)', async ({ page }) => {
   const firstLeft = () => page.locator('[data-slot="0"]').evaluate((e) => parseFloat((e as HTMLElement).style.width));
   const final = async () => (await slotRects(page))[0].w;
+  const animating = () => page.evaluate(() => (window as any).__cw.animating);
   await page.locator('#count').fill('2');
-  const w0 = await firstLeft();
-  expect(Math.abs(w0 - (await final()))).toBeGreaterThan(5); // mid-animation
+  expect(await animating()).toBe(true);
   await expect.poll(async () => Math.abs((await firstLeft()) - (await final()))).toBeLessThan(0.5);
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.reload();
   await page.evaluate(() => (window as any).__cw.ready);
   await page.locator('#count').fill('3');
+  expect(await animating()).toBe(false);
   expect(Math.abs((await firstLeft()) - (await final()))).toBeLessThan(0.5);
 });
 

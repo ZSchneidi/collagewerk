@@ -33,8 +33,24 @@ export interface Sheet {
   orientation: Orientation;
 }
 
+export type LayoutMode = 'free' | 'fixed';
+
+/** Fixed size of every Slot in the 'fixed' Layout mode (portrait base dimensions in mm). */
+export interface PhotoSize {
+  preset: string;
+  w: number;
+  h: number;
+  orientation: Orientation;
+}
+
 export interface Collage {
   sheet: Sheet;
+  mode: LayoutMode;
+  photoSize: PhotoSize;
+  /** Same photo mode (only effective in 'fixed') */
+  samePhoto: boolean;
+  /** Cut marks (only effective in 'fixed') */
+  cutMarks: boolean;
   slotCount: number;
   templateIndex: number;
   gap: number;

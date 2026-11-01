@@ -1,12 +1,12 @@
 import {
   Archive, ChevronDown, CircleAlert, CircleCheck, Crop, FileImage, FlipHorizontal2, FolderOpen, ImageDown, ImagePlus, Images, Info,
-  LayoutGrid, Moon, MousePointerClick, Move, Plus, Printer, RectangleHorizontal, RectangleVertical, Redo2, RotateCcw, RotateCw, Save,
+  LayoutGrid, Moon, MousePointerClick, Move, Plus, Printer, RectangleHorizontal, RectangleVertical, Redo2, RotateCcw, RotateCw, Ruler, Save,
   Scan, Sun, TriangleAlert, Undo2, X, ZoomIn, createElement, type IconNode,
 } from 'lucide';
 
 const ICONS: Record<string, IconNode> = {
   Archive, ChevronDown, CircleAlert, CircleCheck, Crop, FileImage, FlipHorizontal2, FolderOpen, ImageDown, ImagePlus, Images, Info,
-  LayoutGrid, Moon, MousePointerClick, Move, Plus, Printer, RectangleHorizontal, RectangleVertical, Redo2, RotateCcw, RotateCw, Save,
+  LayoutGrid, Moon, MousePointerClick, Move, Plus, Printer, RectangleHorizontal, RectangleVertical, Redo2, RotateCcw, RotateCw, Ruler, Save,
   Scan, Sun, TriangleAlert, Undo2, X, ZoomIn,
 };
 

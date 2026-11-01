@@ -21,6 +21,8 @@ export function drawCollage(ctx: CanvasRenderingContext2D, c: Collage, images: (
   ctx.fillStyle = c.background;
   ctx.fillRect(0, 0, w * k, h * k);
   const slots = o.rects ?? collageSlots(c);
+  // Cut marks go under the Photos, so a mark reaching into a neighbouring Slot is covered by it (rule 16).
+  if (c.mode === 'fixed' && c.cutMarks) drawCutMarks(ctx, slots, k);
   slots.forEach((r, i) => {
     const px: Rect = { x: r.x * k, y: r.y * k, w: r.w * k, h: r.h * k };
     const it = c.slots[i];
@@ -106,5 +108,33 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, r: Rect, loading: boolea
     ctx.textBaseline = 'top';
     ctx.fillText(loading ? 'Lädt …' : 'Foto hierher ziehen', cx, iconY + rad + 8);
   }
+  ctx.restore();
+}
+
+export const CUT_MARK = { len: 3, offset: 0.5, width: 0.2, color: '#888888' };
+
+function drawCutMarks(ctx: CanvasRenderingContext2D, slots: Rect[], k: number) {
+  const { len, offset, width, color } = CUT_MARK;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, width * k);
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  for (const r of slots) {
+    const xs = [r.x, r.x + r.w];
+    const ys = [r.y, r.y + r.h];
+    for (const x of xs)
+      for (const y of ys) {
+        const dx = x === r.x ? -1 : 1;
+        const dy = y === r.y ? -1 : 1;
+        // horizontal mark on the extension of the top/bottom edge
+        ctx.moveTo((x + dx * offset) * k, y * k);
+        ctx.lineTo((x + dx * (offset + len)) * k, y * k);
+        // vertical mark on the extension of the left/right edge
+        ctx.moveTo(x * k, (y + dy * offset) * k);
+        ctx.lineTo(x * k, (y + dy * (offset + len)) * k);
+      }
+  }
+  ctx.stroke();
   ctx.restore();
 }

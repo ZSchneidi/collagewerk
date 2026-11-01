@@ -1,5 +1,5 @@
 import type { Collage } from './types';
-import { prunePhotos } from './collage';
+import { prunePhotos, withDefaults } from './collage';
 
 export const FILE_FORMAT = 'collagewerk';
 export const FILE_VERSION = 1;
@@ -34,5 +34,5 @@ export function parseFile(text: string): CollageFile {
   for (const id of Object.keys(f.collage.photos)) {
     if (typeof f.images[id] !== 'string') throw new Error('Die Datei ist unvollständig (Foto fehlt).');
   }
-  return f;
+  return { ...f, collage: withDefaults(f.collage) };
 }

@@ -192,6 +192,25 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .seg button[aria-pressed='true'] { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 500; }
 .seg button[aria-pressed='true'] .ico { color: var(--accent); }
 
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.switch { position: relative; display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track { flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); position: relative; transition: background var(--dur) var(--ease); }
+.switch .track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform var(--dur) var(--ease); }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::after { transform: translateX(14px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.alert { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn); font-size: 13px; font-weight: 500; }
+.alert .btn { margin-left: auto; }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+
+.bio-guide { position: absolute; inset: 0; pointer-events: none; }
+.bio-guide i { position: absolute; left: 0; right: 0; }
+.bio-guide .center { left: 50%; right: auto; top: 0; bottom: 0; border-left: 1px dashed rgba(255,255,255,.9); box-shadow: 1px 0 0 rgba(0,0,0,.35); }
+.bio-guide .band { background: rgba(79,70,229,.18); border-top: 1px solid rgba(79,70,229,.9); border-bottom: 1px solid rgba(79,70,229,.9); }
+.bio-guide .eyes { background: rgba(16,185,129,.16); border-top: 1px dashed rgba(16,185,129,.95); border-bottom: 1px dashed rgba(16,185,129,.95); }
+.bio-guide b { position: absolute; left: 4px; font-size: 10px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.7); transform: translateY(-50%); }
+
 /* sliders */
 .slider { display: flex; flex-direction: column; gap: 6px; }
 .label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 500; }

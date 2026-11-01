@@ -1,4 +1,4 @@
-import type { Collage, Rect, Sheet } from './types';
+import type { Collage, LayoutMode, PhotoSize, Rect, Sheet } from './types';
 
 export const SHEET_PRESETS: { id: string; label: string; w: number; h: number }[] = [
   { id: 'A4', label: 'A4', w: 210, h: 297 },
@@ -9,6 +9,33 @@ export const SHEET_PRESETS: { id: string; label: string; w: number; h: number }[
   { id: '13x18', label: '13 × 18 cm', w: 130, h: 180 },
   { id: '20x30', label: '20 × 30 cm', w: 200, h: 300 },
 ];
+
+export const PHOTO_SIZES: { id: string; label: string; w: number; h: number; same: boolean; tip?: string }[] = [
+  { id: 'passbild', label: 'Passbild', w: 35, h: 45, same: true, tip: 'Passbild 35 × 45 mm. Hinweis: Personalausweis und Reisepass brauchen seit Mai 2025 ein digitales Foto (Fotostudio oder Behörde).' },
+  { id: 'bewerbung', label: 'Bewerbungsfoto', w: 45, h: 60, same: true },
+  { id: 'us', label: 'US-Pass 2 × 2″', w: 50.8, h: 50.8, same: false },
+  { id: 'square50', label: 'Quadrat 50', w: 50, h: 50, same: false },
+  { id: '9x13', label: '9 × 13', w: 90, h: 130, same: false },
+  { id: '10x15', label: '10 × 15', w: 100, h: 150, same: false },
+  { id: '13x18', label: '13 × 18', w: 130, h: 180, same: false },
+];
+
+/** Photo size in mm as placed (orientation applied; square sizes ignore it). */
+export function photoSizeDims(p: PhotoSize): { w: number; h: number } {
+  const short = Math.min(p.w, p.h);
+  const long = Math.max(p.w, p.h);
+  return p.orientation === 'landscape' ? { w: long, h: short } : { w: short, h: long };
+}
+
+/** How many fixed-size Slots fit on the Sheet (rule 3), capped at MAX_SLOTS. */
+export function fixedCapacity(sheet: Sheet, margin: number, gap: number, ps: PhotoSize) {
+  const { w: W, h: H } = sheetSize(sheet);
+  const { w, h } = photoSizeDims(ps);
+  const eps = 1e-6;
+  const cols = Math.max(0, Math.floor((W - 2 * margin + gap + eps) / (w + gap)));
+  const rows = Math.max(0, Math.floor((H - 2 * margin + gap + eps) / (h + gap)));
+  return { cols, rows, max: Math.min(MAX_SLOTS, cols * rows) };
+}
 
 export const MIN_SLOTS = 1;
 export const MAX_SLOTS = 12;
@@ -133,6 +160,8 @@ function place(nd: Node, r: Rect, gap: number, out: Rect[]) {
 
 export interface LayoutInput {
   sheet: Sheet;
+  mode?: LayoutMode;
+  photoSize?: PhotoSize;
   slotCount: number;
   templateIndex: number;
   gap: number;
@@ -141,6 +170,7 @@ export interface LayoutInput {
 
 /** Slot rectangles in mm, in Slot order. */
 export function computeSlots(c: LayoutInput): Rect[] {
+  if (c.mode === 'fixed' && c.photoSize) return fixedSlots(c as Required<Pick<LayoutInput, 'sheet' | 'photoSize'>> & LayoutInput);
   const { w, h } = sheetSize(c.sheet);
   const area: Rect = { x: c.margin, y: c.margin, w: Math.max(1, w - 2 * c.margin), h: Math.max(1, h - 2 * c.margin) };
   const tpls = templatesFor(c.slotCount);
@@ -152,6 +182,20 @@ export function computeSlots(c: LayoutInput): Rect[] {
   const out: Rect[] = [];
   place(tree, area, c.gap, out);
   return out;
+}
+
+/** Fixed-size grid, centred, filled row by row (rules 2, 4). */
+function fixedSlots(c: LayoutInput & { photoSize: PhotoSize }): Rect[] {
+  const { cols, max } = fixedCapacity(c.sheet, c.margin, c.gap, c.photoSize);
+  const n = Math.min(c.slotCount, max);
+  if (n <= 0) return [];
+  const { w: W, h: H } = sheetSize(c.sheet);
+  const { w, h } = photoSizeDims(c.photoSize);
+  const usedCols = Math.min(cols, n);
+  const usedRows = Math.ceil(n / cols);
+  const x0 = (W - (usedCols * w + (usedCols - 1) * c.gap)) / 2;
+  const y0 = (H - (usedRows * h + (usedRows - 1) * c.gap)) / 2;
+  return Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (w + c.gap), y: y0 + Math.floor(i / cols) * (h + c.gap), w, h }));
 }
 
 export function collageSlots(c: Collage): Rect[] {

@@ -41,3 +41,18 @@ _Avoid_: hover menu, quick actions
 
 **Welcome card**: The card on the stage shown while the Collage has no Photos at all, with a large drop zone and short tips.
 _Avoid_: empty state, onboarding, splash
+
+**Layout mode**: How Slots get their size: *Frei* (the Template fills the area inside the Margin) or *Feste Fotogröße* (every Slot has the same fixed Photo size).
+_Avoid_: layout type, sizing
+
+**Photo size**: The fixed size in mm that every Slot has in the *Feste Fotogröße* Layout mode, e.g. Passbild 35 × 45 mm. Not the paper size, which is the Sheet.
+_Avoid_: picture format, format, Fotoformat
+
+**Same photo mode**: In the *Feste Fotogröße* Layout mode, all Slots show one Photo and share one Crop, so a change to one applies to all.
+_Avoid_: copy mode, duplicate, clone
+
+**Cut marks**: Thin lines printed outside each Slot corner showing where to cut.
+_Avoid_: crop marks, trim lines, Schneidelinien
+
+**Biometric guide**: An editor-only overlay on a Passbild Slot (centre line, chin-to-crown band, eye-line zone) to help align a face. Never printed and not an official check.
+_Avoid_: face guide, template overlay, Passbild-Prüfung

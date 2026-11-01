@@ -1,9 +1,9 @@
 import './style.css';
-import { addPhotos, createCollage, moveSlot, prunePhotos, referencedPhotoIds, setCrop, setSlotCount, slotToTray, trayToSlot } from '../model/collage';
+import { addPhotos, capacity, createCollage, fitSheet, maxSlots, moveSlot, normalize, prunePhotos, referencedPhotoIds, setCrop, setLayoutMode, setPhotoSize, setSamePhoto, setSlotCount, slotToTray, trayToSlot, withDefaults } from '../model/collage';
 import { clampCrop, defaultCrop, dpiLevel, effectiveDpi, mirror, pan, rotate, zoomAt } from '../model/crop';
 import { parseFile, toFile } from '../model/fileformat';
 import { History } from '../model/history';
-import { collageSlots, computeSlots, MAX_SLOTS, SHEET_PRESETS, sheetSize, templatesFor } from '../model/layout';
+import { collageSlots, computeSlots, PHOTO_SIZES, photoSizeDims, SHEET_PRESETS, sheetSize, templatesFor } from '../model/layout';
 import type { Collage, Crop, Rect } from '../model/types';
 import { isSupported, PhotoStore } from './photos';
 import { drawCollage, renderToCanvas } from './render';
@@ -35,6 +35,7 @@ photos.onLoaded = () => requestRender();
 /** Apply a change. Records undo history unless the same `key` is still coalescing (slider drags, gestures). */
 function commit(next: Collage, key: string | null = null) {
   if (next === state) return;
+  next = normalize(next);
   if (key === null || key !== coalesceKey) history.push(state);
   coalesceKey = key;
   state = next;
@@ -76,7 +77,7 @@ async function restore() {
   // drop references to photos whose data is missing
   saved.slots = saved.slots.map((s) => (s && photos.has(s.photoId) ? s : null));
   saved.tray = saved.tray.filter((t) => photos.has(t.photoId));
-  state = prunePhotos(saved);
+  state = normalize(prunePhotos(withDefaults(saved)));
   // remove orphaned photo blobs
   const keys = (await db.photoKeys()) ?? [];
   for (const k of keys) if (!ids.has(String(k))) db.deletePhoto(String(k));
@@ -141,7 +142,7 @@ const ANIM_MS = 180;
 let anim: { from: Rect[]; to: Rect[]; start: number } | null = null;
 let lastLayoutKey = '';
 let lastRects: Rect[] = [];
-const layoutKey = (c: Collage) => JSON.stringify([c.sheet, c.slotCount, c.templateIndex, c.gap, c.margin]);
+const layoutKey = (c: Collage) => JSON.stringify([c.sheet, c.slotCount, c.templateIndex, c.gap, c.margin, c.mode, c.photoSize]);
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -201,7 +202,13 @@ function renderChrome() {
   const { w, h } = sheetSize(state.sheet);
   const preset = SHEET_PRESETS.find((p) => p.id === state.sheet.preset);
   const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('de-DE');
-  $('sheet-label').textContent = `${preset ? preset.label : 'Eigenes Format'} · ${fmt(w)} × ${fmt(h)} mm`;
+  let label = `${preset ? preset.label : 'Eigenes Format'} · ${fmt(w)} × ${fmt(h)} mm`;
+  if (state.mode === 'fixed') {
+    const d = photoSizeDims(state.photoSize);
+    const ps = PHOTO_SIZES.find((p) => p.id === state.photoSize.preset);
+    label += ` · ${state.slotCount} × ${ps ? ps.label : 'Eigene Größe'} ${fmt(d.w)} × ${fmt(d.h)} mm`;
+  }
+  $('sheet-label').textContent = label;
   const empty = state.slots.every((x) => !x) && state.tray.length === 0;
   $('welcome').hidden = !empty;
   const badge = $('tray-count');
@@ -253,11 +260,45 @@ function renderOverlay(slots: Rect[] = displayRects()) {
       }
     }
 
-    const wantTools = !!(it && meta) && i === hovered && !gesture && p.w >= 120 && p.h >= 60;
+    const wantGuide = i === selected && !!(it && meta) && isPassbildPortrait() && guideOn;
+    const guide = el.querySelector(':scope > .bio-guide');
+    if (wantGuide && !guide) el.appendChild(bioGuide());
+    if (!wantGuide && guide) guide.remove();
+
+    const wantTools = !!(it && meta) && i === hovered && !gesture && !wantGuide && p.w >= 120 && p.h >= 60;
     const tools = el.querySelector(':scope > .slot-tools');
     if (wantTools && !tools) el.appendChild(slotTools(i));
     if (!wantTools && tools) tools.remove();
   });
+}
+
+// ---------- Biometric guide (photo sizes rules 18, 19) ----------
+const isPassbildPortrait = () => state.mode === 'fixed' && state.photoSize.preset === 'passbild' && state.photoSize.orientation === 'portrait';
+let guideOn = true;
+const MM = 45; // Passbild height
+function bioGuide() {
+  const g = document.createElement('div');
+  g.className = 'bio-guide';
+  g.title = 'Ausrichtungshilfe – keine amtliche Prüfung';
+  const band = (cls: string, from: number, to: number, label: string) => {
+    const e = document.createElement('i');
+    e.className = cls;
+    Object.assign(e.style, { top: `${(from / MM) * 100}%`, height: `${((to - from) / MM) * 100}%` });
+    if (label) {
+      const b = document.createElement('b');
+      b.textContent = label;
+      b.style.top = '50%';
+      e.appendChild(b);
+    }
+    g.appendChild(e);
+  };
+  band('band', 3, 7, 'Scheitel');
+  band('eyes', 18, 23, 'Augen');
+  band('band', 36, 40, 'Kinn');
+  const c = document.createElement('i');
+  c.className = 'center';
+  g.appendChild(c);
+  return g;
 }
 
 /** Slot toolbar (rule 15). */
@@ -334,8 +375,28 @@ function syncControls() {
   inp('custom-h').value = String(s.h);
   $('orient-portrait').setAttribute('aria-pressed', String(s.orientation === 'portrait'));
   $('orient-landscape').setAttribute('aria-pressed', String(s.orientation === 'landscape'));
+  const fixed = state.mode === 'fixed';
+  $('mode-free').setAttribute('aria-pressed', String(!fixed));
+  $('mode-fixed').setAttribute('aria-pressed', String(fixed));
+  $('fixed-opts').hidden = !fixed;
+  $('free-opts').hidden = fixed;
+  const max = maxSlots(state);
+  inp('count').max = String(Math.max(1, max));
+  inp('count').disabled = fixed && max === 0;
   inp('count').value = String(state.slotCount);
-  $('count-out').textContent = String(state.slotCount);
+  $('count-out').textContent = fixed ? `${state.slotCount} / ${max}` : String(state.slotCount);
+  const ps = state.photoSize;
+  psBox.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.size === ps.preset)));
+  $('ps-custom').hidden = ps.preset !== 'custom';
+  inp('ps-w').value = String(ps.w);
+  inp('ps-h').value = String(ps.h);
+  $('ps-portrait').setAttribute('aria-pressed', String(ps.orientation === 'portrait'));
+  $('ps-landscape').setAttribute('aria-pressed', String(ps.orientation === 'landscape'));
+  inp('same-photo').checked = state.samePhoto;
+  inp('cut-marks').checked = state.cutMarks;
+  $('fit-hint').hidden = !(fixed && capacity(state).max === 0);
+  $('guide-row').hidden = !isPassbildPortrait();
+  inp('guide-toggle').checked = guideOn;
   inp('gap').value = String(state.gap);
   $('gap-out').textContent = `${state.gap} mm`;
   inp('margin').value = String(state.margin);
@@ -415,7 +476,43 @@ slider('gap', (v) => ({ ...state, gap: v }));
 slider('margin', (v) => ({ ...state, margin: v }));
 inp('background').addEventListener('input', () => commit({ ...state, background: inp('background').value }, 'background'));
 inp('background').addEventListener('change', endCoalesce);
-inp('count').max = String(MAX_SLOTS);
+// ---------- Layout mode + Photo size (photo sizes rules 1–17) ----------
+$('mode-free').onclick = () => commit(setLayoutMode(state, 'free'));
+$('mode-fixed').onclick = () => commit(setLayoutMode(state, 'fixed'));
+const psBox = $('photo-size');
+for (const p of [...PHOTO_SIZES, { id: 'custom', label: 'Eigene', w: 0, h: 0, same: false, tip: 'Eigene Größe in mm' }]) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.role = 'radio';
+  b.dataset.size = p.id;
+  b.textContent = p.label;
+  b.title = p.tip ?? `${p.label}: ${p.w} × ${p.h} mm`;
+  b.onclick = () => {
+    const ps = p.id === 'custom' ? { ...state.photoSize, preset: 'custom' } : { ...state.photoSize, preset: p.id, w: p.w, h: p.h };
+    commit(setPhotoSize(state, ps));
+  };
+  psBox.appendChild(b);
+}
+for (const id of ['ps-w', 'ps-h']) {
+  inp(id).onchange = () => {
+    const clampMm = (v: number, d: number) => Math.max(10, Math.min(500, v || d));
+    commit(setPhotoSize(state, { ...state.photoSize, preset: 'custom', w: clampMm(Number(inp('ps-w').value), state.photoSize.w), h: clampMm(Number(inp('ps-h').value), state.photoSize.h) }));
+  };
+}
+$('ps-portrait').onclick = () => commit(setPhotoSize(state, { ...state.photoSize, orientation: 'portrait' }));
+$('ps-landscape').onclick = () => commit(setPhotoSize(state, { ...state.photoSize, orientation: 'landscape' }));
+inp('same-photo').onchange = () => commit(setSamePhoto(state, inp('same-photo').checked));
+inp('cut-marks').onchange = () => commit({ ...state, cutMarks: inp('cut-marks').checked });
+$('fit-sheet').onclick = () => {
+  const next = fitSheet(state);
+  if (next) commit(next);
+  else toast('Diese Fotogröße passt auf keinen Standardbogen.');
+};
+inp('guide-toggle').onchange = () => {
+  guideOn = inp('guide-toggle').checked;
+  prefs.set('guide', guideOn ? 'on' : 'off');
+  renderNow();
+};
 
 // ---------- crop (rules 19–23) ----------
 function selectedCtx(): { i: number; meta: Collage['photos'][string]; crop: Crop; rect: Rect } | null {
@@ -821,6 +918,7 @@ function syncThemeButton() {
   setIcon(b, dark ? 'Sun' : 'Moon');
   b.title = dark ? 'Helles Design' : 'Dunkles Design';
 }
+guideOn = prefs.get('guide') !== 'off';
 const savedTheme = prefs.get('theme');
 if (savedTheme === 'dark' || savedTheme === 'light') document.documentElement.dataset.theme = savedTheme;
 syncThemeButton();
@@ -847,6 +945,9 @@ window.addEventListener('pagehide', () => void flushSave());
   },
   get selected() {
     return selected;
+  },
+  get animating() {
+    return anim !== null;
   },
   slotRectsPx: () => slotsMm().map(toPx),
   flushSave,
