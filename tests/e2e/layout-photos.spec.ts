@@ -5,14 +5,14 @@ test.beforeEach(({ page }) => openEditor(page));
 
 test('German editor with default A4 and 4 Slots (rules 3, 4)', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-  await expect(page.getByRole('button', { name: 'Drucken' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Drucken', exact: true })).toBeVisible();
   await expect(page.locator('#overlay .slot-ui')).toHaveCount(4);
   await expect(page.locator('#tray')).toBeVisible();
 });
 
 test('Sheet, Slot count, Template, Gap and Margin recompute Slots (rules 5–9)', async ({ page }) => {
   await expect(page.locator('#custom-size')).toBeHidden();
-  await page.selectOption('#preset', 'A5');
+  await page.click('#preset [data-preset="A5"]');
   await page.click('#orient-landscape');
   let s = await getState(page);
   expect(s.sheet).toMatchObject({ preset: 'A5', orientation: 'landscape' });
@@ -30,7 +30,7 @@ test('Sheet, Slot count, Template, Gap and Margin recompute Slots (rules 5–9)'
   const after = await slotRects(page);
   expect(after[0].x).toBeGreaterThan(before[0].x);
 
-  await page.selectOption('#preset', 'custom');
+  await page.click('#preset [data-preset="custom"]');
   await expect(page.locator('#custom-size')).toBeVisible();
   await page.fill('#custom-w', '300');
   await page.fill('#custom-h', '120');
@@ -49,9 +49,10 @@ test('Single drop onto a Slot; occupied Slot sends old Photo to tray (rule 11)',
 });
 
 test('Multi drop fills empty Slots in order, overflow to tray (rule 12)', async ({ page }) => {
-  await dropAndWait(page, [{ name: 'x.jpg' }], { slot: 1 });
+  const r3 = (await slotRects(page))[3]; // corner of Slot 3, clear of the Welcome card
+  await dropAndWait(page, [{ name: 'x.jpg' }], { x: r3.x + r3.w - 10, y: r3.y + r3.h - 10 });
   await dropAndWait(page, ['a', 'b', 'c', 'd'].map((n) => ({ name: `${n}.jpg` })), { x: 600, y: 900 });
-  expect(await slotNames(page)).toEqual(['a.jpg', 'x.jpg', 'b.jpg', 'c.jpg']);
+  expect(await slotNames(page)).toEqual(['a.jpg', 'b.jpg', 'c.jpg', 'x.jpg']);
   expect(await trayNames(page)).toEqual(['d.jpg']);
 });
 

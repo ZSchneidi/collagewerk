@@ -6,7 +6,7 @@ test.beforeEach(({ page }) => openEditor(page));
 
 async function setup(page: import('@playwright/test').Page) {
   await page.locator('#count').fill('3');
-  await page.selectOption('#preset', '13x18');
+  await page.click('#preset [data-preset="13x18"]');
   await dropAndWait(page, ['a', 'b', 'c', 'd'].map((n) => ({ name: `${n}.jpg` })), { x: 600, y: 900 });
   const r = (await slotRects(page))[1];
   await page.mouse.click(r.cx, r.cy);
@@ -81,7 +81,7 @@ test('Print prepares a 1:1 page with zero margins and the hint (rule 29)', async
 });
 
 test('PNG export renders at 300 dpi (rule 30)', async ({ page }) => {
-  await page.selectOption('#preset', 'A4');
+  await page.click('#preset [data-preset="A4"]');
   await dropAndWait(page, [{ name: 'a.jpg' }], { slot: 0 });
   const dl = page.waitForEvent('download');
   await page.click('#export-png');

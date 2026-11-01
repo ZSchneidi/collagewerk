@@ -9,6 +9,18 @@ import { isSupported, PhotoStore } from './photos';
 import { drawCollage, renderToCanvas } from './render';
 import * as db from './storage';
 import { registerEditorTab } from './tab';
+import { hydrateIcons, icon, setIcon } from './icons';
+import interUrl from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+
+// bundled Inter (rule 12) – no network
+try {
+  const face = new FontFace('Inter', `url(${interUrl}) format('woff2')`, { weight: '100 900', style: 'normal' });
+  document.fonts.add(face);
+  face.load().catch(() => {});
+} catch {
+  /* fall back to system font */
+}
+hydrateIcons();
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -95,11 +107,12 @@ const overlay = $('overlay');
 const stage = $('stage');
 let view = { scale: 1 }; // css px per mm
 
+const sheetArea = $('sheet-area');
 function fit() {
   const { w, h } = sheetSize(state.sheet);
-  const pad = 32;
-  const sw = stage.clientWidth - pad * 2;
-  const sh = stage.clientHeight - pad * 2;
+  const cs = getComputedStyle(sheetArea);
+  const sw = sheetArea.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const sh = sheetArea.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 30; // label
   view.scale = Math.max(0.5, Math.min(sw / w, sh / h));
   const dpr = window.devicePixelRatio || 1;
   canvas.style.width = `${w * view.scale}px`;
@@ -122,6 +135,43 @@ function slotAt(clientX: number, clientY: number): number | null {
   return i < 0 ? null : i;
 }
 
+// ---------- Slot animation (rule 17) ----------
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const ANIM_MS = 180;
+let anim: { from: Rect[]; to: Rect[]; start: number } | null = null;
+let lastLayoutKey = '';
+let lastRects: Rect[] = [];
+const layoutKey = (c: Collage) => JSON.stringify([c.sheet, c.slotCount, c.templateIndex, c.gap, c.margin]);
+const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+function startAnimationIfNeeded() {
+  const key = layoutKey(state);
+  if (key === lastLayoutKey) return;
+  const to = slotsMm();
+  if (lastLayoutKey && !reducedMotion.matches && lastRects.length) {
+    const from = to.map((r, i) => lastRects[i] ?? { x: r.x + r.w / 2, y: r.y + r.h / 2, w: 0, h: 0 });
+    anim = { from, to, start: performance.now() };
+  }
+  lastLayoutKey = key;
+}
+
+/** Slot rectangles as currently drawn (animated); hit-testing always uses the final ones. */
+function displayRects(): Rect[] {
+  const to = slotsMm();
+  if (!anim) return to;
+  const t = Math.min(1, (performance.now() - anim.start) / ANIM_MS);
+  if (t >= 1 || anim.to.length !== to.length) {
+    anim = null;
+    return to;
+  }
+  const e = ease(t);
+  return to.map((r, i) => {
+    const f = anim!.from[i];
+    return { x: lerp(f.x, r.x, e), y: lerp(f.y, r.y, e), w: lerp(f.w, r.w, e), h: lerp(f.h, r.h, e) };
+  });
+}
+
 // ---------- render ----------
 let raf = 0;
 function requestRender() {
@@ -137,49 +187,148 @@ function render() {
   fit();
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  drawCollage(ctx, state, (id) => photos.bitmap(id), { scale: view.scale * dpr, placeholders: true });
-  renderOverlay();
+  startAnimationIfNeeded();
+  const rects = displayRects();
+  lastRects = rects;
+  drawCollage(ctx, state, (id) => photos.bitmap(id), { scale: view.scale * dpr, placeholders: true, rects });
+  renderOverlay(rects);
+  renderChrome();
+  if (anim) requestRender();
+}
+
+/** Sheet label, Welcome card, tray badge (rules 7, 13, 21). */
+function renderChrome() {
+  const { w, h } = sheetSize(state.sheet);
+  const preset = SHEET_PRESETS.find((p) => p.id === state.sheet.preset);
+  const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('de-DE');
+  $('sheet-label').textContent = `${preset ? preset.label : 'Eigenes Format'} · ${fmt(w)} × ${fmt(h)} mm`;
+  const empty = state.slots.every((x) => !x) && state.tray.length === 0;
+  $('welcome').hidden = !empty;
+  const badge = $('tray-count');
+  badge.textContent = String(state.tray.length);
+  badge.classList.toggle('has', state.tray.length > 0);
 }
 
 let dropTarget: number | null = null;
-function renderOverlay() {
-  const slots = slotsMm();
-  overlay.replaceChildren();
+let hovered: number | null = null;
+function renderOverlay(slots: Rect[] = displayRects()) {
+  // reuse elements so hover toolbars and badges are not torn down while the pointer is on them
+  while (overlay.children.length > slots.length) overlay.lastElementChild!.remove();
   slots.forEach((r, i) => {
     const p = toPx(r);
-    const el = document.createElement('div');
-    el.className = 'slot-ui';
-    el.dataset.slot = String(i);
+    let el = overlay.children[i] as HTMLElement | undefined;
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'slot-ui';
+      el.dataset.slot = String(i);
+      overlay.appendChild(el);
+    }
     Object.assign(el.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.w}px`, height: `${p.h}px` });
-    if (i === selected) el.classList.add('selected');
-    if (i === dropTarget) el.classList.add('drop-target');
+    el.classList.toggle('selected', i === selected);
+    el.classList.toggle('drop-target', i === dropTarget);
     const it = state.slots[i];
     const meta = it && state.photos[it.photoId];
+    el.classList.toggle('occupied', !!(it && meta));
+
+    let badgeKey = '';
+    let dpi = 0;
     if (it && meta) {
-      const dpi = effectiveDpi(meta, clampCrop(meta, it.crop, r), r);
+      dpi = Math.round(effectiveDpi(meta, clampCrop(meta, it.crop, r), r));
+      el.dataset.dpi = String(dpi);
       const lvl = dpiLevel(dpi);
-      el.dataset.dpi = String(Math.round(dpi));
-      if (lvl !== 'ok') {
-        const b = document.createElement('span');
-        b.className = `dpi ${lvl}`;
-        b.textContent = `${Math.round(dpi)} dpi`;
-        b.title = `${Math.round(dpi)} dpi – ${lvl === 'bad' ? 'wird sehr wahrscheinlich unscharf' : 'kann unscharf wirken'}`;
-        el.appendChild(b);
+      if (lvl !== 'ok') badgeKey = `${lvl}:${dpi}`;
+    } else delete el.dataset.dpi;
+    let badge = el.querySelector<HTMLElement>(':scope > .dpi');
+    if ((badge?.dataset.key ?? '') !== badgeKey) {
+      badge?.remove();
+      badge = null;
+      if (badgeKey) {
+        const lvl = badgeKey.split(':')[0];
+        badge = document.createElement('span');
+        badge.className = `dpi ${lvl}`;
+        badge.dataset.key = badgeKey;
+        badge.append(icon('TriangleAlert', 13), `${dpi} dpi`);
+        badge.title = `${dpi} dpi – ${lvl === 'bad' ? 'wird sehr wahrscheinlich unscharf' : 'kann unscharf wirken'}`;
+        el.prepend(badge);
       }
     }
-    overlay.appendChild(el);
+
+    const wantTools = !!(it && meta) && i === hovered && !gesture && p.w >= 120 && p.h >= 60;
+    const tools = el.querySelector(':scope > .slot-tools');
+    if (wantTools && !tools) el.appendChild(slotTools(i));
+    if (!wantTools && tools) tools.remove();
   });
 }
 
+/** Slot toolbar (rule 15). */
+function slotTools(i: number) {
+  const bar = document.createElement('div');
+  bar.className = 'slot-tools';
+  const add = (name: string, tip: string, fn: () => void) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = tip;
+    b.setAttribute('aria-label', tip);
+    b.append(icon(name, 16));
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (selected !== i) select(i);
+      fn();
+    });
+    bar.appendChild(b);
+  };
+  add('RotateCcw', '90° nach links', () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, -1)));
+  add('RotateCw', '90° nach rechts', () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, 1)));
+  add('FlipHorizontal2', 'Spiegeln', () => updateCrop((s) => mirror(s.meta, s.crop, s.rect)));
+  add('Archive', 'In die Ablage (Entf)', () => {
+    commit(slotToTray(state, i));
+    hovered = null;
+  });
+  return bar;
+}
+
+const sheetWrap = $('sheet-wrap');
+sheetWrap.addEventListener('pointermove', (e) => {
+  if (gesture) return;
+  const t = slotAt(e.clientX, e.clientY);
+  const h = t !== null && state.slots[t] ? t : null;
+  if (h !== hovered) {
+    hovered = h;
+    requestRender();
+  }
+});
+sheetWrap.addEventListener('pointerleave', (e) => {
+  const to = e.relatedTarget as Node | null;
+  if (to && sheetWrap.contains(to)) return;
+  const b = sheetWrap.getBoundingClientRect();
+  if (e.clientX > b.left && e.clientX < b.right && e.clientY > b.top && e.clientY < b.bottom) return;
+  if (hovered !== null) {
+    hovered = null;
+    requestRender();
+  }
+});
+
 // ---------- controls ----------
-const presetSel = $<HTMLSelectElement>('preset');
-for (const p of SHEET_PRESETS) presetSel.add(new Option(p.label, p.id));
-presetSel.add(new Option('Benutzerdefiniert', 'custom'));
+const presetBox = $('preset');
+for (const p of [...SHEET_PRESETS, { id: 'custom', label: 'Eigene' }]) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.role = 'radio';
+  b.dataset.preset = p.id;
+  b.textContent = p.label;
+  b.onclick = () => {
+    const ps = SHEET_PRESETS.find((x) => x.id === p.id);
+    const sheet = ps ? { ...state.sheet, preset: p.id, w: ps.w, h: ps.h } : { ...state.sheet, preset: 'custom' };
+    commit({ ...state, sheet });
+  };
+  presetBox.appendChild(b);
+}
 const inp = (id: string) => $<HTMLInputElement>(id);
 
 function syncControls() {
   const s = state.sheet;
-  presetSel.value = s.preset;
+  presetBox.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.preset === s.preset)));
   $('custom-size').hidden = s.preset !== 'custom';
   inp('custom-w').value = String(s.w);
   inp('custom-h').value = String(s.h);
@@ -194,11 +343,12 @@ function syncControls() {
   inp('background').value = state.background;
   renderTemplates();
   const it = selected !== null ? state.slots[selected] : null;
-  $('crop-panel').hidden = !it;
+  $('crop-panel').classList.toggle('open', !!it);
   if (it) {
     inp('zoom').value = String(Math.round(it.crop.zoom * 100));
     $('zoom-out').textContent = `${Math.round(it.crop.zoom * 100)} %`;
   }
+  document.querySelectorAll<HTMLInputElement>('input[type=range]').forEach(fillSlider);
   ($('undo') as HTMLButtonElement).disabled = !history.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !history.canRedo;
 }
@@ -229,7 +379,7 @@ function renderTemplates() {
       svg.appendChild(e);
     };
     rect(0, 0, w, h, { fill: 'none', stroke: 'currentColor', 'stroke-width': String(2 / k) });
-    for (const r of rects) rect(r.x, r.y, r.w, r.h, { fill: 'currentColor', opacity: '.45' });
+    for (const r of rects) rect(r.x, r.y, r.w, r.h, { fill: 'currentColor', opacity: '.28', rx: String(1.5 / k) });
     const label = document.createElement('span');
     label.textContent = t.label;
     b.append(svg, label);
@@ -238,12 +388,10 @@ function renderTemplates() {
   });
 }
 
-presetSel.onchange = () => {
-  const id = presetSel.value;
-  const p = SHEET_PRESETS.find((x) => x.id === id);
-  const sheet = p ? { ...state.sheet, preset: id, w: p.w, h: p.h } : { ...state.sheet, preset: 'custom' };
-  commit({ ...state, sheet });
-};
+function fillSlider(el: HTMLInputElement) {
+  const min = Number(el.min), max = Number(el.max);
+  el.style.setProperty('--p', `${((Number(el.value) - min) / (max - min)) * 100}%`);
+}
 for (const id of ['custom-w', 'custom-h']) {
   inp(id).onchange = () => {
     const w = Math.max(20, Math.min(1000, Number(inp('custom-w').value) || state.sheet.w));
@@ -256,7 +404,10 @@ $('orient-landscape').onclick = () => commit({ ...state, sheet: { ...state.sheet
 
 function slider(id: string, apply: (v: number) => Collage) {
   const el = inp(id);
-  el.addEventListener('input', () => commit(apply(Number(el.value)), id));
+  el.addEventListener('input', () => {
+    fillSlider(el);
+    commit(apply(Number(el.value)), id);
+  });
   el.addEventListener('change', endCoalesce);
 }
 slider('count', (v) => setSlotCount(state, v));
@@ -303,6 +454,12 @@ function select(i: number | null) {
 type Gesture = { kind: 'pan' | 'move'; slot: number; x: number; y: number; moved: boolean; ghost?: HTMLElement };
 let gesture: Gesture | null = null;
 
+let emptyPress: number | null = null;
+canvas.addEventListener('click', (e) => {
+  const i = slotAt(e.clientX, e.clientY);
+  if (i !== null && i === emptyPress && !state.slots[i]) pickPhotos(i);
+  emptyPress = null;
+});
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   const i = slotAt(e.clientX, e.clientY);
@@ -311,8 +468,13 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   const wasSelected = selected === i;
+  if (!state.slots[i]) {
+    // empty Slot: pick a file for exactly this Slot (UI v2 rule 14)
+    select(null);
+    emptyPress = i;
+    return;
+  }
   select(i);
-  if (!state.slots[i]) return;
   canvas.setPointerCapture(e.pointerId);
   gesture = { kind: wasSelected ? 'pan' : 'move', slot: i, x: e.clientX, y: e.clientY, moved: false };
 });
@@ -414,6 +576,7 @@ window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (k === 'z' && !e.shiftKey) return e.preventDefault(), undo();
     if (k === 'y' || (k === 'z' && e.shiftKey)) return e.preventDefault(), redo();
+    if (k === 'p') return e.preventDefault(), void $('print').click();
   }
   if (typing || tag === 'SELECT') return;
   if (e.key === 'Escape') return select(null);
@@ -458,17 +621,23 @@ const TRAY_MIME = 'application/x-collagewerk-tray';
 const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
 const hasTray = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes(TRAY_MIME);
 
+const welcome = $('welcome');
+const overWelcome = (e: DragEvent) => !welcome.hidden && welcome.contains(e.target as Node);
+/** Slot under a drag/drop, ignoring the Welcome card (dropping there fills in order, rule 22). */
+const dropSlot = (e: DragEvent) => (overWelcome(e) ? null : slotAt(e.clientX, e.clientY));
 window.addEventListener('dragover', (e) => {
   if (!hasFiles(e) && !hasTray(e)) return;
   e.preventDefault();
   e.dataTransfer!.dropEffect = hasTray(e) ? 'move' : 'copy';
-  const t = slotAt(e.clientX, e.clientY);
+  welcome.classList.toggle('drop-target', overWelcome(e));
+  const t = dropSlot(e);
   if (t !== dropTarget) {
     dropTarget = t;
     requestRender();
   }
 });
 window.addEventListener('dragleave', (e) => {
+  if (e.relatedTarget === null) welcome.classList.remove('drop-target');
   if (e.relatedTarget === null && dropTarget !== null) {
     dropTarget = null;
     requestRender();
@@ -477,7 +646,8 @@ window.addEventListener('dragleave', (e) => {
 window.addEventListener('drop', (e) => {
   if (!hasFiles(e) && !hasTray(e)) return;
   e.preventDefault();
-  const t = slotAt(e.clientX, e.clientY);
+  const t = dropSlot(e);
+  welcome.classList.remove('drop-target');
   dropTarget = null;
   if (hasTray(e)) {
     const idx = Number(e.dataTransfer!.getData(TRAY_MIME));
@@ -512,12 +682,20 @@ function renderTray() {
   });
 }
 
-$('add-photos').onclick = () => inp('file-photos').click();
+let pickTarget: number | undefined;
+function pickPhotos(target?: number) {
+  pickTarget = target;
+  inp('file-photos').click();
+}
+$('add-photos').onclick = () => pickPhotos();
+$('welcome-pick').onclick = () => pickPhotos();
 inp('file-photos').onchange = () => {
   const files = [...(inp('file-photos').files ?? [])];
   inp('file-photos').value = '';
-  addFiles(files);
+  addFiles(files, pickTarget);
+  pickTarget = undefined;
 };
+$('deselect').onclick = () => select(null);
 
 // ---------- collage file (rule 28) ----------
 function download(blob: Blob, name: string) {
@@ -608,13 +786,55 @@ $('print').onclick = async () => {
 
 // ---------- toast ----------
 let toastTimer = 0;
-function toast(msg: string) {
+function toast(msg: string, kind: 'error' | 'info' = 'error') {
   const t = $('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  t.replaceChildren(icon(kind === 'error' ? 'CircleAlert' : 'CircleCheck', 18), msg);
+  t.className = `show ${kind}`;
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => t.classList.remove('show'), 4000);
 }
+
+// ---------- theme + remembered card state (UI v2 rules 2, 5) ----------
+const prefs = {
+  get(k: string) {
+    try {
+      return localStorage.getItem(`cw.${k}`);
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: string) {
+    try {
+      localStorage.setItem(`cw.${k}`, v);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+function effectiveTheme() {
+  return document.documentElement.dataset.theme ?? (systemDark.matches ? 'dark' : 'light');
+}
+function syncThemeButton() {
+  const dark = effectiveTheme() === 'dark';
+  const b = $('theme');
+  setIcon(b, dark ? 'Sun' : 'Moon');
+  b.title = dark ? 'Helles Design' : 'Dunkles Design';
+}
+const savedTheme = prefs.get('theme');
+if (savedTheme === 'dark' || savedTheme === 'light') document.documentElement.dataset.theme = savedTheme;
+syncThemeButton();
+systemDark.addEventListener('change', syncThemeButton);
+$('theme').onclick = () => {
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  prefs.set('theme', next);
+  syncThemeButton();
+};
+document.querySelectorAll<HTMLDetailsElement>('details.card').forEach((d) => {
+  if (prefs.get(`card.${d.id}`) === 'closed') d.open = false;
+  d.addEventListener('toggle', () => prefs.set(`card.${d.id}`, d.open ? 'open' : 'closed'));
+});
 
 // ---------- boot ----------
 window.addEventListener('resize', requestRender);

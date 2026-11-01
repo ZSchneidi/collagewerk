@@ -9,6 +9,8 @@ export interface RenderOptions {
   scale: number;
   /** draw empty-Slot placeholders (editor only, never in output) */
   placeholders?: boolean;
+  /** Slot rectangles in mm to draw into (editor animation); defaults to the computed layout */
+  rects?: Rect[];
 }
 
 /** Draw the Collage onto ctx with the Sheet's top-left at (0,0). Same function for editor, print and export. */
@@ -18,22 +20,14 @@ export function drawCollage(ctx: CanvasRenderingContext2D, c: Collage, images: (
   ctx.save();
   ctx.fillStyle = c.background;
   ctx.fillRect(0, 0, w * k, h * k);
-  const slots = collageSlots(c);
+  const slots = o.rects ?? collageSlots(c);
   slots.forEach((r, i) => {
     const px: Rect = { x: r.x * k, y: r.y * k, w: r.w * k, h: r.h * k };
     const it = c.slots[i];
     const meta = it && c.photos[it.photoId];
     const img = it && images(it.photoId);
     if (!it || !meta || !img) {
-      if (o.placeholders) {
-        ctx.fillStyle = 'rgba(120,130,150,0.18)';
-        ctx.fillRect(px.x, px.y, px.w, px.h);
-        ctx.fillStyle = 'rgba(80,90,110,0.7)';
-        ctx.font = `${Math.max(10, Math.min(px.w, px.h) * 0.07)}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(it ? 'Lädt …' : 'Foto hierher ziehen', px.x + px.w / 2, px.y + px.h / 2);
-      }
+      if (o.placeholders) drawPlaceholder(ctx, px, !!it);
       return;
     }
     const crop = clampCrop(meta, it.crop, px);
@@ -65,4 +59,52 @@ export function renderToCanvas(c: Collage, images: (id: string) => ImageSource |
   const ctx = cv.getContext('2d')!;
   drawCollage(ctx, c, images, { scale });
   return cv;
+}
+
+/** Editor-only look of an empty Slot: dashed outline, "+" and a short hint. */
+function drawPlaceholder(ctx: CanvasRenderingContext2D, r: Rect, loading: boolean) {
+  if (r.w < 2 || r.h < 2) return;
+  const m = Math.min(r.w, r.h);
+  const ins = Math.max(3, m * 0.03);
+  ctx.save();
+  ctx.fillStyle = 'rgba(79,70,229,0.05)';
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = 'rgba(79,70,229,0.45)';
+  ctx.lineWidth = Math.max(1.5, m * 0.008);
+  ctx.setLineDash([m * 0.03 + 4, m * 0.02 + 3]);
+  ctx.beginPath();
+  ctx.roundRect(r.x + ins, r.y + ins, r.w - 2 * ins, r.h - 2 * ins, Math.max(4, m * 0.03));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const rad = Math.max(10, Math.min(28, m * 0.09));
+  const showText = m > 90;
+  const iconY = showText ? cy - rad * 0.55 : cy;
+  ctx.fillStyle = 'rgba(79,70,229,0.12)';
+  ctx.beginPath();
+  ctx.arc(cx, iconY, rad, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(79,70,229,0.9)';
+  ctx.lineWidth = Math.max(1.5, rad * 0.12);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const a = rad * 0.42;
+  if (loading) {
+    ctx.arc(cx, iconY, a, 0, Math.PI * 1.5);
+  } else {
+    ctx.moveTo(cx - a, iconY);
+    ctx.lineTo(cx + a, iconY);
+    ctx.moveTo(cx, iconY - a);
+    ctx.lineTo(cx, iconY + a);
+  }
+  ctx.stroke();
+  if (showText) {
+    ctx.fillStyle = 'rgba(60,62,80,0.75)';
+    ctx.font = `500 ${Math.max(11, Math.min(15, m * 0.045))}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(loading ? 'Lädt …' : 'Foto hierher ziehen', cx, iconY + rad + 8);
+  }
+  ctx.restore();
 }

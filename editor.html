@@ -8,85 +8,116 @@
 </head>
 <body>
   <div id="app">
-    <aside id="sidebar">
-      <h1>CollageWerk</h1>
+    <header id="topbar">
+      <div class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span><span>Collage<b>Werk</b></span></div>
+      <div class="group">
+        <button id="undo" class="icon-btn" type="button" data-icon="Undo2" data-tip="Rückgängig (Strg+Z)" aria-label="Rückgängig"></button>
+        <button id="redo" class="icon-btn" type="button" data-icon="Redo2" data-tip="Wiederholen (Strg+Y)" aria-label="Wiederholen"></button>
+      </div>
+      <div class="group">
+        <button id="open-file" class="btn ghost" type="button" data-icon="FolderOpen" data-tip="Gespeicherte Collage öffnen">Öffnen</button>
+        <button id="save-file" class="btn ghost" type="button" data-icon="Save" data-tip="Collage als Datei speichern">Speichern</button>
+      </div>
+      <div class="spacer"></div>
+      <button id="theme" class="icon-btn" type="button" data-icon="Moon" data-tip="Dunkles Design" aria-label="Design umschalten"></button>
+      <button id="export-png" class="btn" type="button" data-icon="ImageDown" data-tip="Als PNG (300 dpi) exportieren">PNG</button>
+      <div class="print-wrap">
+        <button id="print" class="btn primary" type="button" data-icon="Printer" data-tip="Collage drucken (Strg+P)">Drucken</button>
+        <button id="print-info" class="icon-btn small" type="button" data-icon="Info" aria-label="Hinweis zum Drucken" aria-describedby="print-hint"></button>
+        <div id="print-hint" class="popover" role="tooltip">Im Druckdialog <b>Ränder: Keine</b> und <b>Skalierung: 100 %</b> wählen, damit die Collage maßstabsgetreu gedruckt wird.</div>
+      </div>
+    </header>
 
-      <section>
-        <h2>Bogen</h2>
-        <label>Format
-          <select id="preset"></select>
-        </label>
-        <div id="custom-size" class="row" hidden>
-          <label>Breite (mm)<input id="custom-w" type="number" min="20" max="1000" step="1" /></label>
-          <label>Höhe (mm)<input id="custom-h" type="number" min="20" max="1000" step="1" /></label>
+    <aside id="left">
+      <details class="card" id="card-sheet" open>
+        <summary><span data-icon="FileImage"></span>Bogen<span class="chev" data-icon="ChevronDown"></span></summary>
+        <div class="card-body">
+          <div id="preset" class="chips" role="radiogroup" aria-label="Format"></div>
+          <div id="custom-size" class="row" hidden>
+            <label class="field">Breite<span class="unit-input"><input id="custom-w" type="number" min="20" max="1000" step="1" /><em>mm</em></span></label>
+            <label class="field">Höhe<span class="unit-input"><input id="custom-h" type="number" min="20" max="1000" step="1" /><em>mm</em></span></label>
+          </div>
+          <div class="seg" role="radiogroup" aria-label="Ausrichtung">
+            <button id="orient-portrait" type="button" data-icon="RectangleVertical">Hochformat</button>
+            <button id="orient-landscape" type="button" data-icon="RectangleHorizontal">Querformat</button>
+          </div>
         </div>
-        <div class="seg" role="group" aria-label="Ausrichtung">
-          <button id="orient-portrait" type="button">Hochformat</button>
-          <button id="orient-landscape" type="button">Querformat</button>
-        </div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Fotos</h2>
-        <label>Anzahl Plätze <output id="count-out">4</output>
-          <input id="count" type="range" min="1" max="12" step="1" />
-        </label>
-        <div id="templates" class="templates"></div>
-        <label>Abstand <output id="gap-out"></output>
-          <input id="gap" type="range" min="0" max="20" step="0.5" />
-        </label>
-        <label>Rand <output id="margin-out"></output>
-          <input id="margin" type="range" min="0" max="30" step="0.5" />
-        </label>
-        <label class="inline">Hintergrund <input id="background" type="color" /></label>
-      </section>
+      <details class="card" id="card-layout" open>
+        <summary><span data-icon="LayoutGrid"></span>Layout<span class="chev" data-icon="ChevronDown"></span></summary>
+        <div class="card-body">
+          <label class="slider">
+            <span class="label">Anzahl Fotos <output id="count-out"></output></span>
+            <input id="count" type="range" min="1" max="12" step="1" />
+          </label>
+          <div class="sub">Vorlage</div>
+          <div id="templates" class="templates"></div>
+          <label class="slider">
+            <span class="label">Abstand <output id="gap-out"></output></span>
+            <input id="gap" type="range" min="0" max="20" step="0.5" />
+          </label>
+          <label class="slider">
+            <span class="label">Rand <output id="margin-out"></output></span>
+            <input id="margin" type="range" min="0" max="30" step="0.5" />
+          </label>
+          <label class="color-field">
+            <span class="label">Hintergrund</span>
+            <span class="swatch"><input id="background" type="color" /></span>
+          </label>
+        </div>
+      </details>
 
-      <section id="crop-panel" hidden>
-        <h2>Ausgewähltes Foto</h2>
-        <label>Zoom <output id="zoom-out"></output>
-          <input id="zoom" type="range" min="100" max="500" step="1" />
-        </label>
-        <div class="btns">
-          <button id="rot-left" type="button" title="90° nach links drehen">⟲ Links</button>
-          <button id="rot-right" type="button" title="90° nach rechts drehen">⟳ Rechts</button>
-          <button id="mirror" type="button" title="Spiegeln">⇋ Spiegeln</button>
-          <button id="reset-crop" type="button" title="Zuschnitt zurücksetzen (Doppelklick)">Zurücksetzen</button>
-          <button id="to-tray" type="button" title="In die Ablage (Entf)">In Ablage</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>Collage</h2>
-        <div class="btns">
-          <button id="add-photos" type="button">Fotos hinzufügen …</button>
-          <button id="undo" type="button" title="Rückgängig (Strg+Z)">↶ Rückgängig</button>
-          <button id="redo" type="button" title="Wiederholen (Strg+Y)">↷ Wiederholen</button>
-          <button id="save-file" type="button">Collage speichern</button>
-          <button id="open-file" type="button">Collage öffnen</button>
-        </div>
-        <div class="btns primary">
-          <button id="print" type="button">Drucken</button>
-          <button id="export-png" type="button">PNG exportieren</button>
-        </div>
-        <p class="hint" id="print-hint">Im Druckdialog <b>Ränder: Keine</b> und <b>Skalierung: 100 %</b> wählen, damit die Collage maßstabsgetreu gedruckt wird.</p>
-      </section>
-      <input id="file-photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
-      <input id="file-collage" type="file" accept=".collagewerk,.json,application/json" hidden />
+      <button id="add-photos" class="btn wide" type="button" data-icon="ImagePlus">Fotos hinzufügen …</button>
     </aside>
 
     <main id="stage">
-      <div id="sheet-wrap">
-        <canvas id="sheet"></canvas>
-        <div id="overlay"></div>
+      <div id="sheet-area">
+        <div id="sheet-wrap">
+          <canvas id="sheet"></canvas>
+          <div id="overlay"></div>
+        </div>
+        <div id="sheet-label"></div>
       </div>
-    </main>
 
-    <footer id="tray">
-      <span class="tray-label">Ablage</span>
-      <div id="tray-items"></div>
-    </footer>
+      <div id="welcome" hidden>
+        <div class="welcome-icon" data-icon="Images"></div>
+        <h2>Fotos hierher ziehen</h2>
+        <p>oder</p>
+        <button id="welcome-pick" class="btn primary" type="button" data-icon="ImagePlus">Fotos auswählen</button>
+        <p class="formats">JPG · PNG · WebP · GIF</p>
+        <ul class="tips">
+          <li><span data-icon="Move"></span>Ziehen zum Tauschen</li>
+          <li><span data-icon="ZoomIn"></span>Scrollen zum Zoomen</li>
+          <li><span data-icon="MousePointerClick"></span>Doppelklick setzt zurück</li>
+        </ul>
+      </div>
+
+      <aside id="crop-panel" aria-label="Ausgewähltes Foto">
+        <div class="panel-head"><span data-icon="Crop"></span>Ausschnitt<button id="deselect" class="icon-btn small" type="button" data-icon="X" data-tip="Auswahl aufheben (Esc)" aria-label="Auswahl aufheben"></button></div>
+        <label class="slider">
+          <span class="label">Zoom <output id="zoom-out"></output></span>
+          <input id="zoom" type="range" min="100" max="500" step="1" />
+        </label>
+        <div class="tool-grid">
+          <button id="rot-left" class="tool" type="button" data-icon="RotateCcw" data-tip="90° nach links">Links</button>
+          <button id="rot-right" class="tool" type="button" data-icon="RotateCw" data-tip="90° nach rechts">Rechts</button>
+          <button id="mirror" class="tool" type="button" data-icon="FlipHorizontal2" data-tip="Spiegeln">Spiegeln</button>
+          <button id="reset-crop" class="tool" type="button" data-icon="Scan" data-tip="Zurücksetzen (Doppelklick)">Reset</button>
+        </div>
+        <button id="to-tray" class="btn wide ghost" type="button" data-icon="Archive" data-tip="In die Ablage (Entf)">In die Ablage</button>
+        <p class="hint">Ziehen verschiebt den Ausschnitt, Pfeiltasten feinjustieren (Umschalt = 10 mm).</p>
+      </aside>
+
+      <footer id="tray" aria-label="Ablage">
+        <div class="tray-head"><span data-icon="Archive"></span>Ablage <span id="tray-count" class="badge">0</span></div>
+        <div id="tray-items"></div>
+      </footer>
+    </main>
   </div>
-  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="toasts" aria-live="polite"><div id="toast" role="status"></div></div>
+  <input id="file-photos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
+  <input id="file-collage" type="file" accept=".collagewerk,.json,application/json" hidden />
   <div id="print-root"></div>
   <script type="module" src="/src/editor/main.ts"></script>
 </body>

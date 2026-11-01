@@ -29,3 +29,15 @@ _Avoid_: gutter, padding, spacing
 
 **Margin**: The empty border between the Sheet edge and the outermost Slots, in mm.
 _Avoid_: border, padding, bleed
+
+**Top bar**: The always-visible bar across the top of the editor with logo, undo/redo, open/save, PNG export and the primary Print button.
+_Avoid_: header, toolbar, menu bar
+
+**Crop panel**: The right-hand panel that slides in while a Slot with a Photo is selected and holds that Photo's Crop controls.
+_Avoid_: inspector, properties, selection panel
+
+**Slot toolbar**: The small floating set of buttons (rotate, mirror, remove) shown on an occupied Slot while the pointer is over it.
+_Avoid_: hover menu, quick actions
+
+**Welcome card**: The card on the stage shown while the Collage has no Photos at all, with a large drop zone and short tips.
+_Avoid_: empty state, onboarding, splash
