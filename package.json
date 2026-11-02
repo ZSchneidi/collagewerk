@@ -1,6 +1,6 @@
 {
   "name": "collagewerk",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Browser extension (Chrome/Firefox) to lay out, crop and print photo collages",
   "directories": {
     "doc": "docs"

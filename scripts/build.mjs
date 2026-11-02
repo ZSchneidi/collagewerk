@@ -21,6 +21,8 @@ const targets = {
   firefox: {
     ...common,
     background: { scripts: ['background.js'] },
+    // put the button straight into the toolbar instead of the extensions (puzzle) menu
+    action: { ...common.action, default_area: 'navbar' },
     browser_specific_settings: { gecko: { id: 'collagewerk@zschneidi', strict_min_version: '115.0', data_collection_permissions: { required: ['none'] } } },
   },
 };
