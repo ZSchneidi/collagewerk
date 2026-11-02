@@ -2,6 +2,7 @@ import { clampCrop, displayedSize, scaleFor } from '../model/crop';
 import { pageLayout, sheetSize } from '../model/layout';
 import { frameFill, frameInsets, photoArea, styleActive, tiltFit, tiltOf } from '../model/style';
 import type { Collage, Decor, PhotoMeta, Placed, Rect, Slot } from '../model/types';
+import { t } from './i18n';
 
 export type ImageSource = CanvasImageSource & { width: number; height: number };
 
@@ -232,7 +233,7 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, r: Rect, loading: boolea
     ctx.font = `500 ${Math.max(11, Math.min(15, m * 0.045))}px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(loading ? 'Lädt …' : 'Foto hierher ziehen', cx, iconY + rad + 8);
+    ctx.fillText(loading ? t('Lädt …') : t('Foto hierher ziehen'), cx, iconY + rad + 8);
   }
   ctx.restore();
 }

@@ -328,7 +328,7 @@ input[type='range']:hover::-webkit-slider-thumb, input[type='range']:active::-we
 .badge { min-width: 22px; text-align: center; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-variant-numeric: tabular-nums; }
 .badge.has { background: var(--accent); color: var(--accent-ink); }
 #tray-items { display: flex; gap: 10px; overflow-x: auto; align-items: center; flex: 1; padding: 4px 2px; }
-#tray-items:empty::after { content: 'Fotos ohne Platz landen hier – zum Einsetzen auf einen Platz ziehen.'; color: var(--muted); font-size: 13px; }
+#tray-items:empty::after { content: attr(data-empty); color: var(--muted); font-size: 13px; }
 .tray-item {
   height: 84px; flex: none; border-radius: 8px; overflow: hidden; cursor: grab;
   box-shadow: var(--shadow-sm); outline: 1px solid var(--line);

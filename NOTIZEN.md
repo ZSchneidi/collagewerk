@@ -38,3 +38,8 @@
 - Klick/Ziehen auf einer Nachbarseite: Seite wird sofort aktiv, der Track bleibt aber stehen („frozenX“), bis die Geste endet – sonst würde die Seite unter dem Mauszeiger wegrutschen.
 - Mausrad: über einem Foto Zoom, sonst eine Seite pro Raste (gesperrt 350 ms); horizontal/Shift immer Seitenwechsel. (Vereinfachung gegenüber Regel 12: Schritt statt freiem Scrollen mit Einrasten.)
 - „Neu“ löscht Fotos/Seiten/Ablage als ein Undo-Schritt; verwaiste Fotos fliegen erst beim nächsten Start aus IndexedDB.
+
+## 2026-11-02 – Englisch (Spec `docs/specs/collagewerk-i18n.md`)
+- `src/editor/i18n.ts`: Deutsch ist Quellsprache; `t('deutscher Text', {vars})` schlägt die englische Übersetzung nach (fehlender Eintrag → Deutsch, nie ein Schlüssel). `translateDom()` übersetzt Textknoten und `title`/`data-tip`/`aria-label` der statischen HTML-Seite.
+- Sprache = erste bevorzugte Browsersprache (`de-*` → de, sonst en). Playwright läuft standardmäßig mit `locale: 'de-DE'`; `tests/e2e/i18n.spec.ts` prüft Englisch auf übrig gebliebene deutsche Wörter.
+- Manifest-Name/-Beschreibung über `public/_locales/{en,de}/messages.json`, `default_locale: en`.

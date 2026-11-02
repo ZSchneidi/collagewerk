@@ -8,11 +8,12 @@ await build({ logLevel: 'warn' });
 const icons = { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' };
 const common = {
   manifest_version: 3,
-  name: 'CollageWerk',
-  description: 'Fotos per Drag & Drop zu einer Collage anordnen, zuschneiden und drucken.',
+  name: '__MSG_extName__',
+  description: '__MSG_extDescription__',
+  default_locale: 'en',
   version: pkg.version,
   icons,
-  action: { default_title: 'CollageWerk öffnen', default_icon: icons },
+  action: { default_title: '__MSG_actionTitle__', default_icon: icons },
   permissions: ['storage', 'unlimitedStorage'],
 };
 

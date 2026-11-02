@@ -12,6 +12,7 @@ import { drawPage, renderToCanvas } from './render';
 import * as db from './storage';
 import { registerEditorTab } from './tab';
 import { hydrateIcons, icon, setIcon } from './icons';
+import { fmtNum, t, translateDom } from './i18n';
 import interUrl from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
 
 // bundled Inter (rule 12) – no network
@@ -22,6 +23,8 @@ try {
 } catch {
   /* fall back to system font */
 }
+translateDom();
+document.getElementById('tray-items')!.dataset.empty = t('Fotos ohne Platz landen hier – zum Einsetzen auf einen Platz ziehen.');
 hydrateIcons();
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -106,12 +109,13 @@ async function addFiles(files: File[], target?: number, toPage?: number) {
       bad.push(f.name);
     }
   }
-  if (bad.length) toast(`Nicht unterstützt: ${bad.join(', ')} (erlaubt: JPG, PNG, WebP, GIF)`);
+  if (bad.length) toast(t('Nicht unterstützt: {files} (erlaubt: JPG, PNG, WebP, GIF)', { files: bad.join(', ') }));
   if (!metas.length) return;
   const before = state.pages.length;
   if (toPage !== undefined) commit(addPhotosToPage(state, metas, toPage));
   else commit(addPhotos(state, metas, files.length === 1 ? target : undefined, page));
-  if (state.pages.length > before) toast(`${state.pages.length - before} neue Seite${state.pages.length - before > 1 ? 'n' : ''} angelegt`, 'info');
+  const added = state.pages.length - before;
+  if (added > 0) toast(added === 1 ? t('1 neue Seite angelegt') : t('{n} neue Seiten angelegt', { n: added }), 'info');
 }
 
 // ---------- geometry: Page carousel (carousel rules 1–4) ----------
@@ -331,16 +335,16 @@ const slideNow = { instant: true };
 function renderChrome() {
   const { w, h } = sheetSize(state.sheet);
   const preset = SHEET_PRESETS.find((p) => p.id === state.sheet.preset);
-  const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('de-DE');
-  let label = `${preset ? preset.label : 'Eigenes Format'} · ${fmt(w)} × ${fmt(h)} mm`;
+  const fmt = (n: number) => fmtNum(n);
+  let label = `${preset ? preset.label : t('Eigenes Format')} · ${fmt(w)} × ${fmt(h)} mm`;
   if (state.mode === 'fixed') {
     const d = photoSizeDims(state.photoSize);
     const ps = PHOTO_SIZES.find((p) => p.id === state.photoSize.preset);
-    label += ` · ${state.slotCount} × ${ps ? ps.label : 'Eigene Größe'} ${fmt(d.w)} × ${fmt(d.h)} mm`;
+    label += ` · ${state.slotCount} × ${ps ? t(ps.label) : t('Eigene Größe')} ${fmt(d.w)} × ${fmt(d.h)} mm`;
   }
   pageEls.forEach((e, i) => {
     e.sheetLabel.textContent = label;
-    e.num.textContent = `Seite ${i + 1} / ${pageEls.length}`;
+    e.num.textContent = t('Seite {n} / {total}', { n: i + 1, total: pageEls.length });
   });
   ($('nav-prev') as HTMLButtonElement).disabled = page <= 0;
   ($('nav-next') as HTMLButtonElement).disabled = page >= state.pages.length - 1;
@@ -417,7 +421,7 @@ function renderOverlay(pg: number, slots: Slot[]) {
         badge.className = `dpi ${lvl}`;
         badge.dataset.key = badgeKey;
         badge.append(icon('TriangleAlert', 13), `${dpi} dpi`);
-        badge.title = `${dpi} dpi – ${lvl === 'bad' ? 'wird sehr wahrscheinlich unscharf' : 'kann unscharf wirken'}`;
+        badge.title = lvl === 'bad' ? t('{dpi} dpi – wird sehr wahrscheinlich unscharf', { dpi }) : t('{dpi} dpi – kann unscharf wirken', { dpi });
         el.prepend(badge);
       }
     }
@@ -441,14 +445,14 @@ const MM = 45; // Passbild height
 function bioGuide() {
   const g = document.createElement('div');
   g.className = 'bio-guide';
-  g.title = 'Ausrichtungshilfe – keine amtliche Prüfung';
+  g.title = t('Ausrichtungshilfe – keine amtliche Prüfung');
   const band = (cls: string, from: number, to: number, label: string) => {
     const e = document.createElement('i');
     e.className = cls;
     Object.assign(e.style, { top: `${(from / MM) * 100}%`, height: `${((to - from) / MM) * 100}%` });
     if (label) {
       const b = document.createElement('b');
-      b.textContent = label;
+      b.textContent = t(label);
       b.style.top = '50%';
       e.appendChild(b);
     }
@@ -482,10 +486,10 @@ function slotTools(pg: number, i: number) {
     });
     bar.appendChild(b);
   };
-  add('RotateCcw', '90° nach links', () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, -1)));
-  add('RotateCw', '90° nach rechts', () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, 1)));
-  add('FlipHorizontal2', 'Spiegeln', () => updateCrop((s) => mirror(s.meta, s.crop, s.rect)));
-  add('Archive', 'In die Ablage (Entf)', () => {
+  add('RotateCcw', t('90° nach links'), () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, -1)));
+  add('RotateCw', t('90° nach rechts'), () => updateCrop((s) => rotate(s.meta, s.crop, s.rect, 1)));
+  add('FlipHorizontal2', t('Spiegeln'), () => updateCrop((s) => mirror(s.meta, s.crop, s.rect)));
+  add('Archive', t('In die Ablage (Entf)'), () => {
     commit(slotToTray(state, pg, i));
     hovered = null;
   });
@@ -515,7 +519,7 @@ for (const p of [...SHEET_PRESETS, { id: 'custom', label: 'Eigene' }]) {
   b.type = 'button';
   b.role = 'radio';
   b.dataset.preset = p.id;
-  b.textContent = p.label;
+  b.textContent = t(p.label);
   b.onclick = () => {
     const ps = SHEET_PRESETS.find((x) => x.id === p.id);
     const sheet = ps ? { ...state.sheet, preset: p.id, w: ps.w, h: ps.h } : { ...state.sheet, preset: 'custom' };
@@ -556,9 +560,9 @@ function syncControls() {
   $('guide-row').hidden = !isPassbildPortrait();
   inp('guide-toggle').checked = guideOn;
   inp('gap').value = String(state.gap);
-  $('gap-out').textContent = `${state.gap} mm`;
+  $('gap-out').textContent = `${fmtNum(state.gap)} mm`;
   inp('margin').value = String(state.margin);
-  $('margin-out').textContent = `${state.margin} mm`;
+  $('margin-out').textContent = `${fmtNum(state.margin)} mm`;
   inp('background').value = state.background;
   renderTemplates();
   const curTpl = templateFor(state.slotCount, state.templateId);
@@ -573,9 +577,9 @@ function syncControls() {
     $('zoom-out').textContent = `${Math.round(it.crop.zoom * 100)} %`;
     const scatter = styleActive(state) && state.style.scatter;
     $('tilt-row').hidden = !scatter;
-    const t = Math.round(tiltOf(state, page, selected!, it) * 10) / 10;
-    inp('tilt').value = String(t);
-    $('tilt-out').textContent = `${t}°`;
+    const tl = Math.round(tiltOf(state, page, selected!, it) * 10) / 10;
+    inp('tilt').value = String(tl);
+    $('tilt-out').textContent = `${fmtNum(tl)}°`;
   }
   renderPages();
   document.querySelectorAll<HTMLInputElement>('input[type=range]').forEach(fillSlider);
@@ -593,12 +597,12 @@ function renderTemplates() {
   const { w, h } = sheetSize(state.sheet);
   const k = 56 / Math.max(w, h);
   const active = templateFor(state.slotCount, state.templateId).id;
-  tpls.forEach((t) => {
+  tpls.forEach((tp) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.dataset.template = t.id;
-    b.setAttribute('aria-pressed', String(t.id === active));
-    const rects = computeSlots({ ...state, mode: 'free', templateId: t.id });
+    b.dataset.template = tp.id;
+    b.setAttribute('aria-pressed', String(tp.id === active));
+    const rects = computeSlots({ ...state, mode: 'free', templateId: tp.id });
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('width', String(w * k));
@@ -620,10 +624,10 @@ function renderTemplates() {
       } else rect(r.x, r.y, r.w, r.h, { fill: 'currentColor', opacity: '.28', rx: String(1.5 / k) });
     }
     const label = document.createElement('span');
-    label.textContent = t.label;
+    label.textContent = t(tp.label);
     b.append(svg, label);
-    b.title = t.label;
-    b.onclick = () => commit({ ...state, templateId: t.id });
+    b.title = t(tp.label);
+    b.onclick = () => commit({ ...state, templateId: tp.id });
     box.appendChild(b);
   });
 }
@@ -664,8 +668,8 @@ for (const p of [...PHOTO_SIZES, { id: 'custom', label: 'Eigene', w: 0, h: 0, sa
   b.type = 'button';
   b.role = 'radio';
   b.dataset.size = p.id;
-  b.textContent = p.label;
-  b.title = p.tip ?? `${p.label}: ${p.w} × ${p.h} mm`;
+  b.textContent = t(p.label);
+  b.title = p.tip ? t(p.tip) : `${t(p.label)}: ${fmtNum(p.w)} × ${fmtNum(p.h)} mm`;
   b.onclick = () => {
     const ps = p.id === 'custom' ? { ...state.photoSize, preset: 'custom' } : { ...state.photoSize, preset: p.id, w: p.w, h: p.h };
     commit(setPhotoSize(state, ps));
@@ -685,7 +689,7 @@ inp('cut-marks').onchange = () => commit({ ...state, cutMarks: inp('cut-marks').
 $('fit-sheet').onclick = () => {
   const next = fitSheet(state);
   if (next) commit(next);
-  else toast('Diese Fotogröße passt auf keinen Standardbogen.');
+  else toast(t('Diese Fotogröße passt auf keinen Standardbogen.'));
 };
 inp('guide-toggle').onchange = () => {
   guideOn = inp('guide-toggle').checked;
@@ -1139,7 +1143,7 @@ inp('file-collage').onchange = async () => {
   try {
     await openCollageText(await file.text());
   } catch (err) {
-    toast((err as Error).message);
+    toast(t((err as Error).message));
   }
 };
 async function openCollageText(text: string) {
@@ -1160,7 +1164,7 @@ async function renderOutput(dpi: number, p = page) {
   return renderToCanvas(state, p, (id) => photos.bitmap(id), dpi);
 }
 const toBlob = (cv: HTMLCanvasElement, type = 'image/png', q?: number) =>
-  new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Export fehlgeschlagen'))), type, q));
+  new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error(t('Export fehlgeschlagen')))), type, q));
 const pageIndices = () => state.pages.map((_, i) => i);
 
 $('export-png').onclick = async () => {
@@ -1220,13 +1224,13 @@ const printCard = $<HTMLDialogElement>('print-card');
 function sheetLabel() {
   const { w, h } = sheetSize(state.sheet);
   const preset = SHEET_PRESETS.find((p) => p.id === state.sheet.preset);
-  const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('de-DE');
+  const fmt = (n: number) => fmtNum(n);
   return `${preset ? preset.label + ' – ' : ''}${fmt(w)} × ${fmt(h)} mm`;
 }
 $('print').onclick = () => {
   if (prefs.get('printCard') === 'off') return void doPrint();
   $('pc-paper').textContent = sheetLabel();
-  $('pc-pages').textContent = state.pages.length > 1 ? `${state.pages.length} Seiten` : '1 Seite';
+  $('pc-pages').textContent = state.pages.length > 1 ? t('{n} Seiten', { n: state.pages.length }) : t('1 Seite');
   inp('pc-dontshow').checked = false;
   printCard.showModal();
 };
@@ -1255,7 +1259,7 @@ function startNew(keep: boolean) {
   select(null);
   commit(newCollage(state, keep));
   activatePage(0);
-  toast('Neue Collage begonnen – Strg+Z holt alles zurück.', 'info');
+  toast(t('Neue Collage begonnen – Strg+Z holt alles zurück.'), 'info');
 }
 $('nc-keep').onclick = () => startNew(true);
 $('nc-reset').onclick = () => startNew(false);
@@ -1271,8 +1275,8 @@ function renderPages() {
   const box = $('page-thumbs');
   const n = state.pages.length;
   strip.hidden = isSame(state) || state.slotCount === 0;
-  $('page-label').textContent = `Seite ${page + 1} / ${n}`;
-  ($('page-delete') as HTMLButtonElement).title = n > 1 ? `Seite ${page + 1} löschen (Fotos in die Ablage)` : 'Seite leeren (Fotos in die Ablage)';
+  $('page-label').textContent = t('Seite {n} / {total}', { n: page + 1, total: n });
+  ($('page-delete') as HTMLButtonElement).title = n > 1 ? t('Seite {n} löschen (Fotos in die Ablage)', { n: page + 1 }) : t('Seite leeren (Fotos in die Ablage)');
   const lastMulti = n > 1 && page === n - 1;
   $('page-count').hidden = !lastMulti;
   if (lastMulti) $('page-count-out').textContent = String(state.pages[page].slots.length);
@@ -1285,7 +1289,7 @@ function renderPages() {
         b.type = 'button';
         b.className = 'page-thumb';
         b.dataset.page = String(i);
-        b.title = `Seite ${i + 1}`;
+        b.title = t('Seite {n}', { n: i + 1 });
         b.setAttribute('aria-current', String(i === page));
         const cv = document.createElement('canvas');
         // size the thumbnail right away so the strip does not shift when it is drawn later
@@ -1347,9 +1351,9 @@ function syncStyle() {
   inp('frame-color').value = st.frameColor;
   $('frame-width-row').hidden = st.frame === 'none';
   inp('frame-width').value = String(st.frameWidth);
-  $('frame-width-out').textContent = `${st.frameWidth} mm`;
+  $('frame-width-out').textContent = `${fmtNum(st.frameWidth)} mm`;
   inp('radius').value = String(st.radius);
-  $('radius-out').textContent = `${st.radius} mm`;
+  $('radius-out').textContent = `${fmtNum(st.radius)} mm`;
   inp('shadow').checked = st.shadow;
   document.querySelectorAll<HTMLElement>('#edge-kind [data-edge]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.edge === st.edges)));
   inp('scatter').checked = st.scatter;
@@ -1402,7 +1406,7 @@ function syncThemeButton() {
   const dark = effectiveTheme() === 'dark';
   const b = $('theme');
   setIcon(b, dark ? 'Sun' : 'Moon');
-  b.title = dark ? 'Helles Design' : 'Dunkles Design';
+  b.title = dark ? t('Helles Design') : t('Dunkles Design');
 }
 guideOn = prefs.get('guide') !== 'off';
 const savedTheme = prefs.get('theme');
